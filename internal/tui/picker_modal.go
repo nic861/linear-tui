@@ -13,12 +13,16 @@ type PickerItem struct {
 
 // PickerModal manages a picker overlay for selecting from a list of items.
 type PickerModal struct {
-	app       *App
-	modal     *tview.Flex
-	list      *tview.List
-	titleView *tview.TextView
-	items     []PickerItem
-	onSelect  func(item PickerItem)
+	app        *App
+	modal      *tview.Flex
+	list       *tview.List
+	titleView  *tview.TextView
+	helpText   *tview.TextView
+	items      []PickerItem
+	onSelect   func(item PickerItem)
+	onToggle   func(item PickerItem)    // Called on Space in toggle mode
+	onDismiss  func()                    // Called on Enter/Esc in toggle mode
+	toggleMode bool
 }
 
 // NewPickerModal creates a new picker modal.
@@ -42,17 +46,17 @@ func NewPickerModal(app *App) *PickerModal {
 	pm.titleView.SetBackgroundColor(app.theme.HeaderBg)
 
 	// Create help text
-	helpText := tview.NewTextView()
-	helpText.SetText("↑↓/j/k: navigate | Enter: select | Esc: cancel")
-	helpText.SetTextColor(app.theme.SecondaryText)
-	helpText.SetBackgroundColor(app.theme.HeaderBg)
+	pm.helpText = tview.NewTextView()
+	pm.helpText.SetText("↑↓/j/k: navigate | Enter: select | Esc: cancel")
+	pm.helpText.SetTextColor(app.theme.SecondaryText)
+	pm.helpText.SetBackgroundColor(app.theme.HeaderBg)
 
 	// Build modal content
 	modalContent := tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(pm.titleView, 1, 0, false).
 		AddItem(pm.list, 0, 1, true).
-		AddItem(helpText, 1, 0, false)
+		AddItem(pm.helpText, 1, 0, false)
 	modalContent.Box = tview.NewBox().SetBackgroundColor(app.theme.HeaderBg)
 	modalContent.SetBackgroundColor(app.theme.HeaderBg).
 		SetBorder(true).
@@ -79,6 +83,10 @@ func NewPickerModal(app *App) *PickerModal {
 func (pm *PickerModal) Show(title string, items []PickerItem, onSelect func(item PickerItem)) {
 	pm.items = items
 	pm.onSelect = onSelect
+	pm.onToggle = nil
+	pm.onDismiss = nil
+	pm.toggleMode = false
+	pm.helpText.SetText("↑↓/j/k: navigate | Enter: select | Esc: cancel")
 
 	pm.titleView.SetText(title)
 	pm.list.Clear()
@@ -94,6 +102,44 @@ func (pm *PickerModal) Show(title string, items []PickerItem, onSelect func(item
 	pm.app.pages.AddPage("picker", pm.modal, true, true)
 	pm.app.pages.SendToFront("picker")
 	pm.app.app.SetFocus(pm.list)
+}
+
+// ShowToggle displays the picker in toggle mode where Space toggles items and Enter closes.
+func (pm *PickerModal) ShowToggle(title string, items []PickerItem, onToggle func(item PickerItem), onDismiss func()) {
+	pm.items = items
+	pm.onSelect = nil
+	pm.onToggle = onToggle
+	pm.onDismiss = onDismiss
+	pm.toggleMode = true
+	pm.helpText.SetText("↑↓/j/k: navigate | Space: toggle | Enter: done")
+
+	pm.titleView.SetText(title)
+	pm.list.Clear()
+
+	for _, item := range items {
+		pm.list.AddItem(item.Label, "", 0, nil)
+	}
+
+	if len(items) > 0 {
+		pm.list.SetCurrentItem(0)
+	}
+
+	pm.app.pages.AddPage("picker", pm.modal, true, true)
+	pm.app.pages.SendToFront("picker")
+	pm.app.app.SetFocus(pm.list)
+}
+
+// UpdateItems refreshes the picker list items (used during toggle mode).
+func (pm *PickerModal) UpdateItems(items []PickerItem) {
+	idx := pm.list.GetCurrentItem()
+	pm.items = items
+	pm.list.Clear()
+	for _, item := range items {
+		pm.list.AddItem(item.Label, "", 0, nil)
+	}
+	if idx >= 0 && idx < len(items) {
+		pm.list.SetCurrentItem(idx)
+	}
 }
 
 // Hide hides the picker modal.
@@ -127,8 +173,20 @@ func (pm *PickerModal) HandleKey(event *tcell.EventKey) *tcell.EventKey {
 	switch event.Key() {
 	case tcell.KeyEscape:
 		pm.Hide()
+		if pm.toggleMode && pm.onDismiss != nil {
+			pm.onDismiss()
+		}
 		return nil
 	case tcell.KeyEnter:
+		if pm.toggleMode {
+			// In toggle mode, Enter closes the dialog
+			pm.Hide()
+			if pm.onDismiss != nil {
+				pm.onDismiss()
+			}
+			return nil
+		}
+		// In select mode, Enter picks the item
 		idx := pm.list.GetCurrentItem()
 		if idx >= 0 && idx < len(pm.items) {
 			item := pm.items[idx]
@@ -152,6 +210,14 @@ func (pm *PickerModal) HandleKey(event *tcell.EventKey) *tcell.EventKey {
 		return nil
 	case tcell.KeyRune:
 		switch event.Rune() {
+		case ' ':
+			if pm.toggleMode && pm.onToggle != nil {
+				idx := pm.list.GetCurrentItem()
+				if idx >= 0 && idx < len(pm.items) {
+					pm.onToggle(pm.items[idx])
+				}
+			}
+			return nil
 		case 'j':
 			idx := pm.list.GetCurrentItem()
 			if idx < pm.list.GetItemCount()-1 {

@@ -186,25 +186,28 @@ type Comment struct {
 
 // Issue represents a Linear issue.
 type Issue struct {
-	ID          string
-	Identifier  string
-	Title       string
-	Description string
-	State       string
-	StateID     string
-	Assignee    string
-	AssigneeID  string
-	Priority    int
-	UpdatedAt   time.Time
-	CreatedAt   time.Time
-	TeamID      string
-	ProjectID   string
-	URL         string
-	Archived    bool
-	Labels      []IssueLabel
-	Parent      *IssueRef       // Parent issue reference (nil if top-level)
-	Children    []IssueChildRef // Child/sub-issue references
-	Comments    []Comment       // Comments on this issue
+	ID             string
+	Identifier     string
+	Title          string
+	Description    string
+	State          string
+	StateID        string
+	StateType      string // backlog, unstarted, started, completed, canceled
+	Assignee       string
+	AssigneeID     string
+	Priority       int
+	UpdatedAt      time.Time
+	CreatedAt      time.Time
+	TeamID         string
+	ProjectID      string
+	ProjectName    string
+	InitiativeName string // First initiative name (via project)
+	URL            string
+	Archived       bool
+	Labels         []IssueLabel
+	Parent         *IssueRef       // Parent issue reference (nil if top-level)
+	Children       []IssueChildRef // Child/sub-issue references
+	Comments       []Comment       // Comments on this issue
 }
 
 // IssueFetchProgress describes progress for a paginated issue fetch.
@@ -230,6 +233,8 @@ type FetchIssuesParams struct {
 	// "priority" is also supported and will be sorted client-side after fetching.
 	OrderBy string
 	First   int
+	// ExcludeStateTypes filters out issues in the given state types (e.g., "completed", "canceled").
+	ExcludeStateTypes []string
 	// OnProgress is an optional callback invoked after each page is fetched.
 	OnProgress func(IssueFetchProgress)
 }
@@ -514,6 +519,12 @@ func buildBaseIssueFilter(params FetchIssuesParams) IssueFilter {
 	}
 	if params.StateID != "" {
 		filter["state"] = map[string]interface{}{"id": map[string]interface{}{"eq": params.StateID}}
+	} else if len(params.ExcludeStateTypes) > 0 {
+		filter["state"] = map[string]interface{}{
+			"type": map[string]interface{}{
+				"nin": params.ExcludeStateTypes,
+			},
+		}
 	}
 	return filter
 }
@@ -645,6 +656,7 @@ func (c *Client) searchIssuesPage(ctx context.Context, params FetchIssuesParams,
 				State      struct {
 					ID   graphql.String
 					Name graphql.String
+					Type graphql.String
 				}
 				Assignee *struct {
 					ID   graphql.String
@@ -658,7 +670,8 @@ func (c *Client) searchIssuesPage(ctx context.Context, params FetchIssuesParams,
 					ID graphql.String
 				}
 				Project *struct {
-					ID graphql.String
+					ID   graphql.String
+					Name graphql.String
 				}
 				Labels struct {
 					Nodes []struct {
@@ -802,6 +815,7 @@ func (c *Client) fetchIssuesWithFilterPage(ctx context.Context, params FetchIssu
 				State      struct {
 					ID   graphql.String
 					Name graphql.String
+					Type graphql.String
 				}
 				Assignee *struct {
 					ID   graphql.String
@@ -815,7 +829,8 @@ func (c *Client) fetchIssuesWithFilterPage(ctx context.Context, params FetchIssu
 					ID graphql.String
 				}
 				Project *struct {
-					ID graphql.String
+					ID   graphql.String
+					Name graphql.String
 				}
 				Labels struct {
 					Nodes []struct {
@@ -896,6 +911,7 @@ func (c *Client) parseIssueNode(node interface{}) Issue {
 	stateField := v.FieldByName("State")
 	stateID := stateField.FieldByName("ID").String()
 	stateName := stateField.FieldByName("Name").String()
+	stateType := stateField.FieldByName("Type").String()
 
 	updatedAt := parseTime(v.FieldByName("UpdatedAt").String())
 	createdAt := parseTime(v.FieldByName("CreatedAt").String())
@@ -919,9 +935,11 @@ func (c *Client) parseIssueNode(node interface{}) Issue {
 	teamID := v.FieldByName("Team").FieldByName("ID").String()
 
 	projectID := ""
+	projectName := ""
 	projectField := v.FieldByName("Project")
 	if !projectField.IsNil() {
 		projectID = projectField.Elem().FieldByName("ID").String()
+		projectName = projectField.Elem().FieldByName("Name").String()
 	}
 
 	url := v.FieldByName("URL").String()
@@ -972,6 +990,7 @@ func (c *Client) parseIssueNode(node interface{}) Issue {
 		Title:       title,
 		State:       stateName,
 		StateID:     stateID,
+		StateType:   stateType,
 		Assignee:    assignee,
 		AssigneeID:  assigneeID,
 		Priority:    priority,
@@ -980,6 +999,7 @@ func (c *Client) parseIssueNode(node interface{}) Issue {
 		Description: description,
 		TeamID:      teamID,
 		ProjectID:   projectID,
+		ProjectName: projectName,
 		URL:         url,
 		Archived:    archived,
 		Labels:      labels,
@@ -1015,6 +1035,7 @@ func (c *Client) FetchIssueByID(ctx context.Context, id string) (Issue, error) {
 			State      struct {
 				ID   graphql.String
 				Name graphql.String
+				Type graphql.String
 			}
 			Assignee *struct {
 				ID   graphql.String
@@ -1028,7 +1049,8 @@ func (c *Client) FetchIssueByID(ctx context.Context, id string) (Issue, error) {
 				ID graphql.String
 			}
 			Project *struct {
-				ID graphql.String
+				ID   graphql.String
+				Name graphql.String
 			}
 			Labels struct {
 				Nodes []struct {
@@ -1099,8 +1121,10 @@ func (c *Client) FetchIssueByID(ctx context.Context, id string) (Issue, error) {
 	}
 
 	projectID := ""
+	projectName := ""
 	if query.Issue.Project != nil {
 		projectID = string(query.Issue.Project.ID)
+		projectName = string(query.Issue.Project.Name)
 	}
 
 	archived := query.Issue.ArchivedAt != nil
@@ -1164,6 +1188,7 @@ func (c *Client) FetchIssueByID(ctx context.Context, id string) (Issue, error) {
 		Title:       string(query.Issue.Title),
 		State:       string(query.Issue.State.Name),
 		StateID:     string(query.Issue.State.ID),
+		StateType:   string(query.Issue.State.Type),
 		Assignee:    assignee,
 		AssigneeID:  assigneeID,
 		Priority:    int(query.Issue.Priority),
@@ -1172,6 +1197,7 @@ func (c *Client) FetchIssueByID(ctx context.Context, id string) (Issue, error) {
 		Description: description,
 		TeamID:      string(query.Issue.Team.ID),
 		ProjectID:   projectID,
+		ProjectName: projectName,
 		URL:         string(query.Issue.URL),
 		Archived:    archived,
 		Labels:      labels,

@@ -71,9 +71,9 @@ func TestRenderIssueRow(t *testing.T) {
 			if len(row) > 1 && row[1] != tt.wantState {
 				t.Errorf("renderIssueRow()[1] = %q, want %q", row[1], tt.wantState)
 			}
-			// Column 2 is now Priority
-			if len(row) > 3 && tt.issue.Assignee == "" && row[3] != "Unassigned" {
-				t.Errorf("renderIssueRow()[3] = %q, want %q", row[3], "Unassigned")
+			// Column 3 is now Project (empty = "-")
+			if len(row) > 3 && tt.issue.ProjectName == "" && row[3] != "-" {
+				t.Errorf("renderIssueRow()[3] = %q, want %q", row[3], "-")
 			}
 		})
 	}
@@ -103,8 +103,5 @@ func TestRenderIssueRow_Truncation(t *testing.T) {
 	}
 
 	// Priority is column 2 (no truncation needed for formatted priority)
-	// Assignee should be truncated to 10 chars (now column 3)
-	if len(row[3]) > 10 {
-		t.Errorf("Assignee length = %d, want <= 10", len(row[3]))
-	}
+	// Column 3 is now Project (no truncation in this test since ProjectName is empty → "-")
 }

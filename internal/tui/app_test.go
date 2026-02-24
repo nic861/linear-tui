@@ -185,7 +185,7 @@ func TestRefreshIssues_PreservesNavigationFocus(t *testing.T) {
 		}, nil
 	}
 
-	app.focusedPane = FocusNavigation
+	app.focusedPane = FocusIssues
 	app.refreshIssuesWithFocusChange(false)
 
 	waitForCondition(t, time.Second, func() bool {
@@ -194,48 +194,8 @@ func TestRefreshIssues_PreservesNavigationFocus(t *testing.T) {
 		return len(app.issues) == 1
 	})
 
-	if app.focusedPane != FocusNavigation {
-		t.Fatalf("focusedPane = %v, want %v", app.focusedPane, FocusNavigation)
+	if app.focusedPane != FocusIssues {
+		t.Fatalf("focusedPane = %v, want %v", app.focusedPane, FocusIssues)
 	}
 }
 
-func TestRefreshIssues_IncludesStateID(t *testing.T) {
-	cfg := config.Config{
-		PageSize: 1,
-		CacheTTL: time.Minute,
-	}
-	app := NewApp(&linearapi.Client{}, cfg, nil)
-	app.queueUpdateDraw = func(f func()) { f() }
-
-	called := make(chan linearapi.FetchIssuesParams, 1)
-	app.fetchIssuesPage = func(ctx context.Context, params linearapi.FetchIssuesParams, after *string) (linearapi.IssuePage, error) {
-		select {
-		case called <- params:
-		default:
-		}
-		return linearapi.IssuePage{Issues: []linearapi.Issue{}, HasNext: false}, nil
-	}
-
-	app.selectedNavigation = &NavigationNode{
-		ID:        "state-123",
-		Text:      "In Progress",
-		TeamID:    "team-1",
-		IsStatus:  true,
-		StateID:   "state-123",
-		StateName: "In Progress",
-	}
-
-	app.refreshIssues()
-
-	select {
-	case params := <-called:
-		if params.StateID != "state-123" {
-			t.Fatalf("StateID = %q, want %q", params.StateID, "state-123")
-		}
-		if params.TeamID != "team-1" {
-			t.Fatalf("TeamID = %q, want %q", params.TeamID, "team-1")
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for fetchIssuesPage")
-	}
-}

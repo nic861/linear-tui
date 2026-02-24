@@ -34,14 +34,12 @@ func formatPriority(priority int, theme Theme) (string, tcell.Color) {
 
 // getIssueFromRow returns the issue for a given table row (accounting for header).
 // Returns nil if the row is invalid.
-// This is a convenience wrapper that uses the current app's issueRows and idToIssue.
 func (a *App) getIssueFromRow(row int) *linearapi.Issue {
 	return getIssueFromRowModel(row, a.issueRows, a.idToIssue)
 }
 
 // getRowForIssue returns the table row for a given issue ID.
 // Returns -1 if not found.
-// This is a convenience wrapper that uses the current app's issueRows.
 func (a *App) getRowForIssue(issueID string) int {
 	return getRowForIssueModel(issueID, a.issueRows)
 }
@@ -71,25 +69,16 @@ func getRowForIssueModel(issueID string, rows []IssueRow) int {
 	return -1
 }
 
-// IssuesSection represents which issues section is active.
-type IssuesSection int
-
-const (
-	IssuesSectionMy IssuesSection = iota
-	IssuesSectionOther
-)
-
-// buildIssuesTable creates and configures an issues table widget with the given title.
-// The table will use the provided getIssue and getRow functions for lookups.
-func (a *App) buildIssuesTable(title string, section IssuesSection) *tview.Table {
+// buildIssuesTable creates and configures the issues table widget.
+func (a *App) buildIssuesTable(title string) *tview.Table {
 	table := tview.NewTable()
-	table.SetBorders(false). // Remove cell borders for cleaner look
-					SetSelectable(true, false).
-					SetBorder(true).
-					SetTitle(title).
-					SetTitleColor(a.theme.Foreground).
-					SetBorderColor(a.theme.Border).
-					SetBackgroundColor(a.theme.Background)
+	table.SetBorders(false).
+		SetSelectable(true, false).
+		SetBorder(true).
+		SetTitle(title).
+		SetTitleColor(a.theme.Foreground).
+		SetBorderColor(a.theme.Border).
+		SetBackgroundColor(a.theme.Background)
 
 	table.SetSelectedStyle(tcell.StyleDefault.
 		Foreground(a.theme.SelectionText).
@@ -117,7 +106,7 @@ func (a *App) buildIssuesTable(title string, section IssuesSection) *tview.Table
 		SetAlign(tview.AlignLeft).
 		SetSelectable(false).
 		SetExpansion(1))
-	table.SetCell(0, 3, tview.NewTableCell("Assignee").
+	table.SetCell(0, 3, tview.NewTableCell("Project").
 		SetStyle(headerStyle).
 		SetAlign(tview.AlignLeft).
 		SetSelectable(false).
@@ -128,12 +117,11 @@ func (a *App) buildIssuesTable(title string, section IssuesSection) *tview.Table
 		SetSelectable(false).
 		SetExpansion(6))
 
-	// Set fixed column widths
 	table.SetFixed(1, 0)
 
 	// Handle selection (Enter to open details or toggle expand)
 	table.SetSelectedFunc(func(row, _ int) {
-		issue := a.getIssueFromRowForSection(row, section)
+		issue := a.getIssueFromRow(row)
 		if issue == nil {
 			return
 		}
@@ -150,14 +138,14 @@ func (a *App) buildIssuesTable(title string, section IssuesSection) *tview.Table
 		a.updateFocus()
 	})
 
-	// Set up keyboard navigation with cross-section support
-	a.setupIssuesTableNavigation(table, section)
+	// Set up keyboard navigation
+	a.setupIssuesTableNavigation(table)
 
 	return table
 }
 
-// setupIssuesTableNavigation sets up keyboard navigation for an issues table with cross-section support.
-func (a *App) setupIssuesTableNavigation(table *tview.Table, section IssuesSection) {
+// setupIssuesTableNavigation sets up keyboard navigation for the issues table.
+func (a *App) setupIssuesTableNavigation(table *tview.Table) {
 	table.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyRune:
@@ -166,104 +154,56 @@ func (a *App) setupIssuesTableNavigation(table *tview.Table, section IssuesSecti
 				row, _ := table.GetSelection()
 				if row < table.GetRowCount()-1 {
 					table.Select(row+1, 0)
-					if issue := a.getIssueFromRowForSection(row+1, section); issue != nil {
-						a.onIssueSelected(*issue)
-						a.activeIssuesSection = section
-					}
-				} else if section == IssuesSectionMy && len(a.otherIssueRows) > 0 {
-					// At bottom of this section - try to move to next section
-					// Move to Other Issues table
-					a.activeIssuesSection = IssuesSectionOther
-					a.otherIssuesTable.Select(1, 0)
-					if issue := a.getIssueFromRowForSection(1, IssuesSectionOther); issue != nil {
+					if issue := a.getIssueFromRow(row + 1); issue != nil {
 						a.onIssueSelected(*issue)
 					}
-					a.updateFocus()
 				}
 				return nil
 			case 'k':
 				row, _ := table.GetSelection()
 				if row > 1 {
 					table.Select(row-1, 0)
-					if issue := a.getIssueFromRowForSection(row-1, section); issue != nil {
-						a.onIssueSelected(*issue)
-						a.activeIssuesSection = section
-					}
-				} else if section == IssuesSectionOther && len(a.myIssueRows) > 0 {
-					// At top of this section - try to move to previous section
-					// Move to My Issues table
-					a.activeIssuesSection = IssuesSectionMy
-					lastRow := len(a.myIssueRows)
-					a.myIssuesTable.Select(lastRow, 0)
-					if issue := a.getIssueFromRowForSection(lastRow, IssuesSectionMy); issue != nil {
+					if issue := a.getIssueFromRow(row - 1); issue != nil {
 						a.onIssueSelected(*issue)
 					}
-					a.updateFocus()
 				}
 				return nil
 			case 'g':
-				// Go to top of current section
 				table.Select(1, 0)
-				if issue := a.getIssueFromRowForSection(1, section); issue != nil {
+				if issue := a.getIssueFromRow(1); issue != nil {
 					a.onIssueSelected(*issue)
-					a.activeIssuesSection = section
 				}
 				return nil
 			case 'G':
-				// Go to bottom of current section
-				var rows []IssueRow
-				switch section {
-				case IssuesSectionMy:
-					rows = a.myIssueRows
-				case IssuesSectionOther:
-					rows = a.otherIssueRows
-				}
-				if len(rows) > 0 {
-					lastRow := len(rows)
+				if len(a.issueRows) > 0 {
+					lastRow := len(a.issueRows)
 					table.Select(lastRow, 0)
-					if issue := a.getIssueFromRowForSection(lastRow, section); issue != nil {
+					if issue := a.getIssueFromRow(lastRow); issue != nil {
 						a.onIssueSelected(*issue)
-						a.activeIssuesSection = section
 					}
 				}
 				return nil
 			case 'l':
 				// Expand current parent issue
 				row, _ := table.GetSelection()
-				if issue := a.getIssueFromRowForSection(row, section); issue != nil {
+				if issue := a.getIssueFromRow(row); issue != nil {
 					if len(issue.Children) > 0 && !a.expandedState[issue.ID] {
 						a.toggleIssueExpanded(issue.ID)
-						a.activeIssuesSection = section
 					}
 				}
 				return nil
 			case 'h':
 				// Collapse current parent issue, or go to parent if on child
 				row, _ := table.GetSelection()
-				if issue := a.getIssueFromRowForSection(row, section); issue != nil {
+				if issue := a.getIssueFromRow(row); issue != nil {
 					if len(issue.Children) > 0 && a.expandedState[issue.ID] {
-						// Collapse this parent
 						a.toggleIssueExpanded(issue.ID)
-						a.activeIssuesSection = section
 					} else if issue.Parent != nil {
-						// Navigate to parent - may be in different section
-						parentRow := a.getRowForIssueInSection(issue.Parent.ID, IssuesSectionMy)
+						parentRow := a.getRowForIssue(issue.Parent.ID)
 						if parentRow > 0 {
-							a.activeIssuesSection = IssuesSectionMy
-							a.myIssuesTable.Select(parentRow, 0)
-							if parent := a.getIssueFromRowForSection(parentRow, IssuesSectionMy); parent != nil {
+							table.Select(parentRow, 0)
+							if parent := a.getIssueFromRow(parentRow); parent != nil {
 								a.onIssueSelected(*parent)
-							}
-							a.updateFocus()
-						} else {
-							parentRow = a.getRowForIssueInSection(issue.Parent.ID, IssuesSectionOther)
-							if parentRow > 0 {
-								a.activeIssuesSection = IssuesSectionOther
-								a.otherIssuesTable.Select(parentRow, 0)
-								if parent := a.getIssueFromRowForSection(parentRow, IssuesSectionOther); parent != nil {
-									a.onIssueSelected(*parent)
-								}
-								a.updateFocus()
 							}
 						}
 					}
@@ -272,29 +212,25 @@ func (a *App) setupIssuesTableNavigation(table *tview.Table, section IssuesSecti
 			case ' ':
 				// Space toggles expand/collapse
 				row, _ := table.GetSelection()
-				if issue := a.getIssueFromRowForSection(row, section); issue != nil {
+				if issue := a.getIssueFromRow(row); issue != nil {
 					if len(issue.Children) > 0 {
 						a.toggleIssueExpanded(issue.ID)
-						a.activeIssuesSection = section
 					}
 				}
 				return nil
 			}
 		case tcell.KeyEnter:
 			row, _ := table.GetSelection()
-			issue := a.getIssueFromRowForSection(row, section)
+			issue := a.getIssueFromRow(row)
 			if issue == nil {
 				return nil
 			}
 
-			// If issue has children, toggle expand/collapse
 			if len(issue.Children) > 0 {
 				a.toggleIssueExpanded(issue.ID)
-				a.activeIssuesSection = section
 				return nil
 			}
 
-			// Otherwise, focus on details
 			a.onIssueSelected(*issue)
 			a.focusedPane = FocusDetails
 			a.updateFocus()
@@ -303,69 +239,23 @@ func (a *App) setupIssuesTableNavigation(table *tview.Table, section IssuesSecti
 			row, _ := table.GetSelection()
 			if row < table.GetRowCount()-1 {
 				table.Select(row+1, 0)
-				if issue := a.getIssueFromRowForSection(row+1, section); issue != nil {
-					a.onIssueSelected(*issue)
-					a.activeIssuesSection = section
-				}
-			} else if section == IssuesSectionMy && len(a.otherIssueRows) > 0 {
-				// At bottom - try to move to next section
-				a.activeIssuesSection = IssuesSectionOther
-				a.otherIssuesTable.Select(1, 0)
-				if issue := a.getIssueFromRowForSection(1, IssuesSectionOther); issue != nil {
+				if issue := a.getIssueFromRow(row + 1); issue != nil {
 					a.onIssueSelected(*issue)
 				}
-				a.updateFocus()
 			}
 			return nil
 		case tcell.KeyUp:
 			row, _ := table.GetSelection()
 			if row > 1 {
 				table.Select(row-1, 0)
-				if issue := a.getIssueFromRowForSection(row-1, section); issue != nil {
-					a.onIssueSelected(*issue)
-					a.activeIssuesSection = section
-				}
-			} else if section == IssuesSectionOther && len(a.myIssueRows) > 0 {
-				// At top - try to move to previous section
-				a.activeIssuesSection = IssuesSectionMy
-				lastRow := len(a.myIssueRows)
-				a.myIssuesTable.Select(lastRow, 0)
-				if issue := a.getIssueFromRowForSection(lastRow, IssuesSectionMy); issue != nil {
+				if issue := a.getIssueFromRow(row - 1); issue != nil {
 					a.onIssueSelected(*issue)
 				}
-				a.updateFocus()
 			}
 			return nil
 		}
 		return event
 	})
-}
-
-// getIssueFromRowForSection returns the issue for a given table row in the specified section.
-func (a *App) getIssueFromRowForSection(row int, section IssuesSection) *linearapi.Issue {
-	var rows []IssueRow
-	var idToIssue map[string]*linearapi.Issue
-	switch section {
-	case IssuesSectionMy:
-		rows = a.myIssueRows
-		idToIssue = a.myIDToIssue
-	case IssuesSectionOther:
-		rows = a.otherIssueRows
-		idToIssue = a.otherIDToIssue
-	}
-	return getIssueFromRowModel(row, rows, idToIssue)
-}
-
-// getRowForIssueInSection returns the table row for a given issue ID in the specified section.
-func (a *App) getRowForIssueInSection(issueID string, section IssuesSection) int {
-	var rows []IssueRow
-	switch section {
-	case IssuesSectionMy:
-		rows = a.myIssueRows
-	case IssuesSectionOther:
-		rows = a.otherIssueRows
-	}
-	return getRowForIssueModel(issueID, rows)
 }
 
 // renderIssuesTableModel renders a table with the given rows and issue lookup map.
@@ -393,7 +283,7 @@ func renderIssuesTableModel(table *tview.Table, rows []IssueRow, idToIssue map[s
 		SetAlign(tview.AlignLeft).
 		SetSelectable(false).
 		SetExpansion(1))
-	table.SetCell(0, 3, tview.NewTableCell("Assignee").
+	table.SetCell(0, 3, tview.NewTableCell("Project").
 		SetStyle(headerStyle).
 		SetAlign(tview.AlignLeft).
 		SetSelectable(false).
@@ -418,10 +308,8 @@ func renderIssuesTableModel(table *tview.Table, rows []IssueRow, idToIssue map[s
 		identifierPrefix := " "
 
 		if issueRow.Level > 0 {
-			// Child issue - show indent prefix
 			identifierPrefix = " " + IconChildPrefix + " "
 		} else if issueRow.HasChildren {
-			// Parent issue - show expand/collapse indicator
 			if issueRow.IsExpanded {
 				identifierPrefix = " " + IconExpanded + " "
 			} else {
@@ -438,7 +326,6 @@ func renderIssuesTableModel(table *tview.Table, rows []IssueRow, idToIssue map[s
 		var stateColor tcell.Color
 		var stateIcon string
 
-		// Color code states
 		lowerState := strings.ToLower(state)
 		switch {
 		case strings.Contains(lowerState, "done") || strings.Contains(lowerState, "complete"):
@@ -469,19 +356,19 @@ func renderIssuesTableModel(table *tview.Table, rows []IssueRow, idToIssue map[s
 			SetTextColor(priorityColor).
 			SetAlign(tview.AlignLeft))
 
-		// Assignee
-		assignee := issue.Assignee
-		assigneeColor := theme.Foreground
-		if assignee == "" {
-			assignee = "Unassigned"
-			assigneeColor = theme.SecondaryText
+		// Project
+		project := issue.ProjectName
+		projectColor := theme.Foreground
+		if project == "" {
+			project = "-"
+			projectColor = theme.SecondaryText
 		}
-		if len(assignee) > 15 {
-			assignee = assignee[:15]
+		if len(project) > 20 {
+			project = project[:20]
 		}
 
-		table.SetCell(row, 3, tview.NewTableCell(assignee).
-			SetTextColor(assigneeColor).
+		table.SetCell(row, 3, tview.NewTableCell(project).
+			SetTextColor(projectColor).
 			SetAlign(tview.AlignLeft))
 
 		// Title
@@ -493,19 +380,17 @@ func renderIssuesTableModel(table *tview.Table, rows []IssueRow, idToIssue map[s
 
 	// Select the specified issue or first row
 	if len(rows) > 0 {
-		selectedRow := 1 // Default to first issue (row 1, row 0 is header)
+		selectedRow := 1
 		if selectedIssueID != "" {
-			// Find the row with matching issue ID
 			for i, row := range rows {
 				if row.IssueID == selectedIssueID {
-					selectedRow = i + 1 // +1 because row 0 is header
+					selectedRow = i + 1
 					break
 				}
 			}
 		}
 		table.Select(selectedRow, 0)
 	} else {
-		// Show empty state message
 		table.SetCell(1, 0, tview.NewTableCell("").SetSelectable(false))
 		table.SetCell(1, 1, tview.NewTableCell("").SetSelectable(false))
 		table.SetCell(1, 2, tview.NewTableCell("").SetSelectable(false))
@@ -518,7 +403,6 @@ func renderIssuesTableModel(table *tview.Table, rows []IssueRow, idToIssue map[s
 }
 
 // renderIssueRow formats an issue for display in the table.
-// This is a helper function that can be used for testing.
 func renderIssueRow(issue linearapi.Issue) []string {
 	identifier := issue.Identifier
 	if len(identifier) > 10 {
@@ -532,13 +416,13 @@ func renderIssueRow(issue linearapi.Issue) []string {
 
 	priorityText, _ := formatPriority(issue.Priority, LinearTheme)
 
-	assignee := issue.Assignee
-	if assignee == "" {
-		assignee = "Unassigned"
+	project := issue.ProjectName
+	if project == "" {
+		project = "-"
 	}
-	if len(assignee) > 10 {
-		assignee = assignee[:10]
+	if len(project) > 20 {
+		project = project[:20]
 	}
 
-	return []string{identifier, state, priorityText, assignee, issue.Title}
+	return []string{identifier, state, priorityText, project, issue.Title}
 }

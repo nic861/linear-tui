@@ -184,30 +184,28 @@ func DefaultCommands(app *App) []Command {
 			},
 		},
 		{
-			ID:       "sort_updated",
-			Title:    "Sort by updated",
-			Keywords: []string{"sort", "updated", "recent"},
-			// No shortcut - ⌘+1/2/3 conflicts with terminal tab switching
+			ID:           "cycle_sort",
+			Title:        "Cycle sort mode (project → status → priority)",
+			Keywords:     []string{"sort", "cycle", "project", "status", "priority"},
+			ShortcutRune: 's',
 			Run: func(a *App) {
-				a.setSortField(SortByUpdatedAt)
+				switch a.sortField {
+				case SortByProjectStatus:
+					a.setSortField(SortByStatusPriority)
+				case SortByStatusPriority:
+					a.setSortField(SortByPriority)
+				default:
+					a.setSortField(SortByProjectStatus)
+				}
 			},
 		},
 		{
-			ID:       "sort_created",
-			Title:    "Sort by created",
-			Keywords: []string{"sort", "created", "new"},
-			// No shortcut - ⌘+1/2/3 conflicts with terminal tab switching
+			ID:           "filter_status",
+			Title:        "Filter by status type",
+			Keywords:     []string{"filter", "status", "state", "show", "hide", "toggle"},
+			ShortcutRune: 't',
 			Run: func(a *App) {
-				a.setSortField(SortByCreatedAt)
-			},
-		},
-		{
-			ID:       "sort_priority",
-			Title:    "Sort by priority",
-			Keywords: []string{"sort", "priority", "urgent"},
-			// No shortcut - ⌘+1/2/3 conflicts with terminal tab switching
-			Run: func(a *App) {
-				a.setSortField(SortByPriority)
+				a.showStateTypeFilterPicker()
 			},
 		},
 		{
@@ -340,10 +338,9 @@ func DefaultCommands(app *App) []Command {
 			},
 		},
 		{
-			ID:           "change_status",
-			Title:        "Change status",
-			Keywords:     []string{"status", "state", "workflow", "todo", "progress", "done"},
-			ShortcutRune: 's',
+			ID:       "change_status",
+			Title:    "Change status",
+			Keywords: []string{"status", "state", "workflow", "todo", "progress", "done"},
 			Run: func(a *App) {
 				issue := a.GetSelectedIssue()
 				if issue == nil {
@@ -482,47 +479,16 @@ func DefaultCommands(app *App) []Command {
 				issues := a.issues
 				a.issuesMu.RUnlock()
 				ExpandAll(a.expandedState, issues)
-				// Rebuild rows for both sections
-				currentUserID := ""
-				if a.currentUser != nil {
-					currentUserID = a.currentUser.ID
-				}
-				myIssues, otherIssues := splitIssuesByAssignee(issues, currentUserID)
-				a.myIssueRows, a.myIDToIssue = BuildIssueRows(myIssues, a.expandedState)
-				a.otherIssueRows, a.otherIDToIssue = BuildIssueRows(otherIssues, a.expandedState)
 
-				// Legacy: keep old fields for backward compatibility
-				a.issueRows = make([]IssueRow, 0, len(a.myIssueRows)+len(a.otherIssueRows))
-				a.issueRows = append(a.issueRows, a.myIssueRows...)
-				a.issueRows = append(a.issueRows, a.otherIssueRows...)
-				a.idToIssue = make(map[string]*linearapi.Issue)
-				for k, v := range a.myIDToIssue {
-					a.idToIssue[k] = v
-				}
-				for k, v := range a.otherIDToIssue {
-					a.idToIssue[k] = v
-				}
+				a.issueRows, a.idToIssue = BuildIssueRows(issues, a.expandedState)
 
-				// Update layout
-				a.updateIssuesColumnLayout()
-
-				// Render both tables, preserving selection
-				var selectedMyIssueID, selectedOtherIssueID string
+				selectedID := ""
 				a.issuesMu.RLock()
-				selectedIssue := a.selectedIssue
-				a.issuesMu.RUnlock()
-				if selectedIssue != nil {
-					if _, ok := a.myIDToIssue[selectedIssue.ID]; ok {
-						selectedMyIssueID = selectedIssue.ID
-						a.activeIssuesSection = IssuesSectionMy
-					} else if _, ok := a.otherIDToIssue[selectedIssue.ID]; ok {
-						selectedOtherIssueID = selectedIssue.ID
-						a.activeIssuesSection = IssuesSectionOther
-					}
+				if a.selectedIssue != nil {
+					selectedID = a.selectedIssue.ID
 				}
-
-				renderIssuesTableModel(a.myIssuesTable, a.myIssueRows, a.myIDToIssue, selectedMyIssueID, a.theme)
-				renderIssuesTableModel(a.otherIssuesTable, a.otherIssueRows, a.otherIDToIssue, selectedOtherIssueID, a.theme)
+				a.issuesMu.RUnlock()
+				renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, selectedID, a.theme)
 			},
 		},
 		{
@@ -532,50 +498,19 @@ func DefaultCommands(app *App) []Command {
 			ShortcutRune: '[',
 			Run: func(a *App) {
 				CollapseAll(a.expandedState)
-				// Rebuild rows for both sections
-				currentUserID := ""
-				if a.currentUser != nil {
-					currentUserID = a.currentUser.ID
-				}
+
 				a.issuesMu.RLock()
 				issues := a.issues
 				a.issuesMu.RUnlock()
-				myIssues, otherIssues := splitIssuesByAssignee(issues, currentUserID)
-				a.myIssueRows, a.myIDToIssue = BuildIssueRows(myIssues, a.expandedState)
-				a.otherIssueRows, a.otherIDToIssue = BuildIssueRows(otherIssues, a.expandedState)
+				a.issueRows, a.idToIssue = BuildIssueRows(issues, a.expandedState)
 
-				// Legacy: keep old fields for backward compatibility
-				a.issueRows = make([]IssueRow, 0, len(a.myIssueRows)+len(a.otherIssueRows))
-				a.issueRows = append(a.issueRows, a.myIssueRows...)
-				a.issueRows = append(a.issueRows, a.otherIssueRows...)
-				a.idToIssue = make(map[string]*linearapi.Issue)
-				for k, v := range a.myIDToIssue {
-					a.idToIssue[k] = v
-				}
-				for k, v := range a.otherIDToIssue {
-					a.idToIssue[k] = v
-				}
-
-				// Update layout
-				a.updateIssuesColumnLayout()
-
-				// Render both tables, preserving selection
-				var selectedMyIssueID, selectedOtherIssueID string
+				selectedID := ""
 				a.issuesMu.RLock()
-				selectedIssue := a.selectedIssue
-				a.issuesMu.RUnlock()
-				if selectedIssue != nil {
-					if _, ok := a.myIDToIssue[selectedIssue.ID]; ok {
-						selectedMyIssueID = selectedIssue.ID
-						a.activeIssuesSection = IssuesSectionMy
-					} else if _, ok := a.otherIDToIssue[selectedIssue.ID]; ok {
-						selectedOtherIssueID = selectedIssue.ID
-						a.activeIssuesSection = IssuesSectionOther
-					}
+				if a.selectedIssue != nil {
+					selectedID = a.selectedIssue.ID
 				}
-
-				renderIssuesTableModel(a.myIssuesTable, a.myIssueRows, a.myIDToIssue, selectedMyIssueID, a.theme)
-				renderIssuesTableModel(a.otherIssuesTable, a.otherIssueRows, a.otherIDToIssue, selectedOtherIssueID, a.theme)
+				a.issuesMu.RUnlock()
+				renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, selectedID, a.theme)
 			},
 		},
 		{
@@ -657,10 +592,9 @@ func DefaultCommands(app *App) []Command {
 			},
 		},
 		{
-			ID:           "add_comment",
-			Title:        "Add comment",
-			Keywords:     []string{"add", "comment", "reply", "t"},
-			ShortcutRune: 't',
+			ID:       "add_comment",
+			Title:    "Add comment",
+			Keywords: []string{"add", "comment", "reply"},
 			Run: func(a *App) {
 				issue := a.GetSelectedIssue()
 				if issue == nil {
