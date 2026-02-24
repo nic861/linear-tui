@@ -185,7 +185,7 @@ func DefaultCommands(app *App) []Command {
 		},
 		{
 			ID:           "cycle_sort",
-			Title:        "Cycle sort mode (project → status → priority)",
+			Title:        "Cycle sort mode (project → status → cycle → priority)",
 			Keywords:     []string{"sort", "cycle", "project", "status", "priority"},
 			ShortcutRune: 's',
 			Run: func(a *App) {
@@ -193,6 +193,8 @@ func DefaultCommands(app *App) []Command {
 				case SortByProjectStatus:
 					a.setSortField(SortByStatusPriority)
 				case SortByStatusPriority:
+					a.setSortField(SortByCycle)
+				case SortByCycle:
 					a.setSortField(SortByPriority)
 				default:
 					a.setSortField(SortByProjectStatus)

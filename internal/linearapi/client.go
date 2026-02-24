@@ -201,6 +201,7 @@ type Issue struct {
 	TeamID         string
 	ProjectID      string
 	ProjectName    string
+	CycleName      string // Current cycle name (e.g. "Cycle 3")
 	InitiativeName string // First initiative name (via project)
 	URL            string
 	Archived       bool
@@ -673,6 +674,10 @@ func (c *Client) searchIssuesPage(ctx context.Context, params FetchIssuesParams,
 					ID   graphql.String
 					Name graphql.String
 				}
+				Cycle *struct {
+					Name   graphql.String
+					Number graphql.Float
+				}
 				Labels struct {
 					Nodes []struct {
 						ID    graphql.String
@@ -832,6 +837,10 @@ func (c *Client) fetchIssuesWithFilterPage(ctx context.Context, params FetchIssu
 					ID   graphql.String
 					Name graphql.String
 				}
+				Cycle *struct {
+					Name   graphql.String
+					Number graphql.Float
+				}
 				Labels struct {
 					Nodes []struct {
 						ID    graphql.String
@@ -942,6 +951,12 @@ func (c *Client) parseIssueNode(node interface{}) Issue {
 		projectName = projectField.Elem().FieldByName("Name").String()
 	}
 
+	cycleName := ""
+	cycleField := v.FieldByName("Cycle")
+	if cycleField.IsValid() && !cycleField.IsNil() {
+		cycleName = cycleField.Elem().FieldByName("Name").String()
+	}
+
 	url := v.FieldByName("URL").String()
 
 	archivedField := v.FieldByName("ArchivedAt")
@@ -1000,6 +1015,7 @@ func (c *Client) parseIssueNode(node interface{}) Issue {
 		TeamID:      teamID,
 		ProjectID:   projectID,
 		ProjectName: projectName,
+		CycleName:   cycleName,
 		URL:         url,
 		Archived:    archived,
 		Labels:      labels,

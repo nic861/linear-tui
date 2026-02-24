@@ -96,22 +96,27 @@ func (a *App) buildIssuesTable(title string) *tview.Table {
 		SetAlign(tview.AlignLeft).
 		SetSelectable(false).
 		SetExpansion(1))
-	table.SetCell(0, 1, tview.NewTableCell("State").
+	table.SetCell(0, 1, tview.NewTableCell("Cycle").
 		SetStyle(headerStyle).
 		SetAlign(tview.AlignLeft).
 		SetSelectable(false).
 		SetExpansion(1))
-	table.SetCell(0, 2, tview.NewTableCell("Priority").
+	table.SetCell(0, 2, tview.NewTableCell("State").
 		SetStyle(headerStyle).
 		SetAlign(tview.AlignLeft).
 		SetSelectable(false).
 		SetExpansion(1))
-	table.SetCell(0, 3, tview.NewTableCell("Project").
+	table.SetCell(0, 3, tview.NewTableCell("Priority").
+		SetStyle(headerStyle).
+		SetAlign(tview.AlignLeft).
+		SetSelectable(false).
+		SetExpansion(1))
+	table.SetCell(0, 4, tview.NewTableCell("Project").
 		SetStyle(headerStyle).
 		SetAlign(tview.AlignLeft).
 		SetSelectable(false).
 		SetExpansion(2))
-	table.SetCell(0, 4, tview.NewTableCell("Title").
+	table.SetCell(0, 5, tview.NewTableCell("Title").
 		SetStyle(headerStyle).
 		SetAlign(tview.AlignLeft).
 		SetSelectable(false).
@@ -273,22 +278,27 @@ func renderIssuesTableModel(table *tview.Table, rows []IssueRow, idToIssue map[s
 		SetAlign(tview.AlignLeft).
 		SetSelectable(false).
 		SetExpansion(1))
-	table.SetCell(0, 1, tview.NewTableCell("State").
+	table.SetCell(0, 1, tview.NewTableCell("Cycle").
 		SetStyle(headerStyle).
 		SetAlign(tview.AlignLeft).
 		SetSelectable(false).
 		SetExpansion(1))
-	table.SetCell(0, 2, tview.NewTableCell("Priority").
+	table.SetCell(0, 2, tview.NewTableCell("State").
 		SetStyle(headerStyle).
 		SetAlign(tview.AlignLeft).
 		SetSelectable(false).
 		SetExpansion(1))
-	table.SetCell(0, 3, tview.NewTableCell("Project").
+	table.SetCell(0, 3, tview.NewTableCell("Priority").
+		SetStyle(headerStyle).
+		SetAlign(tview.AlignLeft).
+		SetSelectable(false).
+		SetExpansion(1))
+	table.SetCell(0, 4, tview.NewTableCell("Project").
 		SetStyle(headerStyle).
 		SetAlign(tview.AlignLeft).
 		SetSelectable(false).
 		SetExpansion(2))
-	table.SetCell(0, 4, tview.NewTableCell("Title").
+	table.SetCell(0, 5, tview.NewTableCell("Title").
 		SetStyle(headerStyle).
 		SetAlign(tview.AlignLeft).
 		SetSelectable(false).
@@ -321,6 +331,20 @@ func renderIssuesTableModel(table *tview.Table, rows []IssueRow, idToIssue map[s
 			SetTextColor(theme.SecondaryText).
 			SetAlign(tview.AlignLeft))
 
+		// Cycle
+		cycleName := issue.CycleName
+		cycleColor := theme.Foreground
+		if cycleName == "" {
+			cycleName = "-"
+			cycleColor = theme.SecondaryText
+		}
+		if len(cycleName) > 16 {
+			cycleName = cycleName[:16]
+		}
+		table.SetCell(row, 1, tview.NewTableCell(cycleName).
+			SetTextColor(cycleColor).
+			SetAlign(tview.AlignLeft))
+
 		// State with color based on state
 		state := issue.State
 		var stateColor tcell.Color
@@ -346,13 +370,13 @@ func renderIssuesTableModel(table *tview.Table, rows []IssueRow, idToIssue map[s
 			state = state[:12]
 		}
 
-		table.SetCell(row, 1, tview.NewTableCell(stateIcon+" "+state).
+		table.SetCell(row, 2, tview.NewTableCell(stateIcon+" "+state).
 			SetTextColor(stateColor).
 			SetAlign(tview.AlignLeft))
 
 		// Priority
 		priorityText, priorityColor := formatPriority(issue.Priority, theme)
-		table.SetCell(row, 2, tview.NewTableCell(priorityText).
+		table.SetCell(row, 3, tview.NewTableCell(priorityText).
 			SetTextColor(priorityColor).
 			SetAlign(tview.AlignLeft))
 
@@ -367,13 +391,13 @@ func renderIssuesTableModel(table *tview.Table, rows []IssueRow, idToIssue map[s
 			project = project[:20]
 		}
 
-		table.SetCell(row, 3, tview.NewTableCell(project).
+		table.SetCell(row, 4, tview.NewTableCell(project).
 			SetTextColor(projectColor).
 			SetAlign(tview.AlignLeft))
 
 		// Title
 		title := issue.Title
-		table.SetCell(row, 4, tview.NewTableCell(title).
+		table.SetCell(row, 5, tview.NewTableCell(title).
 			SetTextColor(theme.Foreground).
 			SetAlign(tview.AlignLeft))
 	}
@@ -394,11 +418,12 @@ func renderIssuesTableModel(table *tview.Table, rows []IssueRow, idToIssue map[s
 		table.SetCell(1, 0, tview.NewTableCell("").SetSelectable(false))
 		table.SetCell(1, 1, tview.NewTableCell("").SetSelectable(false))
 		table.SetCell(1, 2, tview.NewTableCell("").SetSelectable(false))
-		table.SetCell(1, 3, tview.NewTableCell("No issues").
+		table.SetCell(1, 3, tview.NewTableCell("").SetSelectable(false))
+		table.SetCell(1, 4, tview.NewTableCell("No issues").
 			SetTextColor(theme.SecondaryText).
 			SetAlign(tview.AlignCenter).
 			SetSelectable(false))
-		table.SetCell(1, 4, tview.NewTableCell("").SetSelectable(false))
+		table.SetCell(1, 5, tview.NewTableCell("").SetSelectable(false))
 	}
 }
 
@@ -407,6 +432,14 @@ func renderIssueRow(issue linearapi.Issue) []string {
 	identifier := issue.Identifier
 	if len(identifier) > 10 {
 		identifier = identifier[:10]
+	}
+
+	cycleName := issue.CycleName
+	if cycleName == "" {
+		cycleName = "-"
+	}
+	if len(cycleName) > 16 {
+		cycleName = cycleName[:16]
 	}
 
 	state := issue.State
@@ -424,5 +457,5 @@ func renderIssueRow(issue linearapi.Issue) []string {
 		project = project[:20]
 	}
 
-	return []string{identifier, state, priorityText, project, issue.Title}
+	return []string{identifier, cycleName, state, priorityText, project, issue.Title}
 }

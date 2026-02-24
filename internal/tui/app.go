@@ -26,6 +26,7 @@ const (
 	SortByPriority       SortField = "priority"
 	SortByProjectStatus  SortField = "projectStatus"  // project → status → priority
 	SortByStatusPriority SortField = "statusPriority"  // status → priority
+	SortByCycle          SortField = "cycle"           // cycle → status → priority
 )
 
 // App is the main application controller that manages all UI components.
@@ -106,6 +107,11 @@ type App struct {
 	// Details pane sub-view focus
 	focusedDetailsView     bool // false = description, true = comments
 	detailsCommentsVisible bool // Tracks whether comments view is shown
+
+	// Pane resize state
+	contentFlex    *tview.Flex // Horizontal split: issues | details
+	splitRatio     float64     // 0.0–1.0, fraction of width for issues pane
+	draggingSplit  bool        // True while mouse is dragging the split border
 }
 
 // FocusTarget indicates which pane has focus.
@@ -140,6 +146,7 @@ func NewApp(api *linearapi.Client, cfg config.Config, templates []config.AgentPr
 		expandedState:        make(map[string]bool),
 		idToIssue:            make(map[string]*linearapi.Issue),
 		agentPromptTemplates: templates,
+		splitRatio:           0.5,
 	}
 
 	app.paletteCtrl = NewPaletteController(DefaultCommands(app))
@@ -161,11 +168,70 @@ func NewApp(api *linearapi.Client, cfg config.Config, templates []config.AgentPr
 func (a *App) Run() error {
 	a.app.SetRoot(a.pages, true).EnableMouse(true)
 
+	// Enable drag-to-resize on the split border
+	a.app.SetMouseCapture(func(event *tcell.EventMouse, action tview.MouseAction) (*tcell.EventMouse, tview.MouseAction) {
+		x, _ := event.Position()
+
+		switch action {
+		case tview.MouseLeftDown:
+			// Check if click is on (or within 1 cell of) the split border
+			bx, _, bw, _ := a.contentFlex.GetRect()
+			borderX := bx + int(a.splitRatio*float64(bw))
+			if x >= borderX-1 && x <= borderX+1 {
+				a.draggingSplit = true
+				return nil, tview.MouseConsumed
+			}
+		case tview.MouseMove:
+			if a.draggingSplit {
+				bx, _, bw, _ := a.contentFlex.GetRect()
+				if bw > 0 {
+					ratio := float64(x-bx) / float64(bw)
+					// Clamp to [0.15, 0.85] so neither pane disappears
+					if ratio < 0.15 {
+						ratio = 0.15
+					} else if ratio > 0.85 {
+						ratio = 0.85
+					}
+					a.splitRatio = ratio
+					a.applySplitRatio()
+				}
+				return nil, tview.MouseConsumed
+			}
+		case tview.MouseLeftUp:
+			if a.draggingSplit {
+				a.draggingSplit = false
+				return nil, tview.MouseConsumed
+			}
+		}
+
+		return event, action
+	})
+
 	// Load initial data asynchronously
 	a.loadInitialData()
 
 	// Start the application event loop
 	return a.app.Run()
+}
+
+// splitProportions converts the float splitRatio into integer proportions for tview.Flex.
+func (a *App) splitProportions() (int, int) {
+	left := int(a.splitRatio * 100)
+	right := 100 - left
+	if left < 1 {
+		left = 1
+	}
+	if right < 1 {
+		right = 1
+	}
+	return left, right
+}
+
+// applySplitRatio updates the contentFlex proportions to match the current splitRatio.
+func (a *App) applySplitRatio() {
+	leftProp, rightProp := a.splitProportions()
+	a.contentFlex.ResizeItem(a.issuesTable, 0, leftProp)
+	a.contentFlex.ResizeItem(a.detailsView, 0, rightProp)
 }
 
 // loadInitialData fetches user and issues in a background goroutine.
@@ -386,15 +452,16 @@ func (a *App) buildLayout() {
 	a.detailsView = a.buildDetailsView()
 	a.statusBar = a.buildStatusBar()
 
-	// Create horizontal split: issues (50%) | details (50%)
-	contentFlex := tview.NewFlex().
-		AddItem(a.issuesTable, 0, 5, true).
-		AddItem(a.detailsView, 0, 5, false)
+	// Create horizontal split with proportions derived from splitRatio
+	leftProp, rightProp := a.splitProportions()
+	a.contentFlex = tview.NewFlex().
+		AddItem(a.issuesTable, 0, leftProp, true).
+		AddItem(a.detailsView, 0, rightProp, false)
 
 	// Create vertical layout: content + status bar
 	a.mainLayout = tview.NewFlex().
 		SetDirection(tview.FlexRow).
-		AddItem(contentFlex, 0, 1, true).
+		AddItem(a.contentFlex, 0, 1, true).
 		AddItem(a.statusBar, 1, 1, false)
 
 	// Build palette modal
@@ -871,7 +938,7 @@ func (a *App) refreshIssuesWithFocusChange(allowFocusChange bool, issueID ...str
 		// Custom sort modes use client-side sorting, fetch with updatedAt from API.
 		apiOrderBy := string(a.sortField)
 		switch a.sortField {
-		case SortByProjectStatus, SortByStatusPriority:
+		case SortByProjectStatus, SortByStatusPriority, SortByCycle:
 			apiOrderBy = string(SortByUpdatedAt)
 		}
 
@@ -1135,6 +1202,28 @@ func sortIssues(issues []linearapi.Issue, field SortField) {
 			// 2. Priority
 			return priorityOrder(a.Priority) < priorityOrder(b.Priority)
 		})
+	case SortByCycle:
+		sort.SliceStable(issues, func(i, j int) bool {
+			a, b := issues[i], issues[j]
+			// 1. Cycle name (empty last)
+			ac, bc := a.CycleName, b.CycleName
+			if ac == "" {
+				ac = "\xff"
+			}
+			if bc == "" {
+				bc = "\xff"
+			}
+			if ac != bc {
+				return strings.ToLower(ac) < strings.ToLower(bc)
+			}
+			// 2. State type order
+			sa, sb := stateTypeOrder(a.StateType), stateTypeOrder(b.StateType)
+			if sa != sb {
+				return sa < sb
+			}
+			// 3. Priority
+			return priorityOrder(a.Priority) < priorityOrder(b.Priority)
+		})
 	}
 	// For updatedAt and createdAt, the API handles sorting.
 }
@@ -1258,6 +1347,8 @@ func (a *App) updateStatusBar() {
 		sortLabel = "created"
 	case SortByPriority:
 		sortLabel = "priority"
+	case SortByCycle:
+		sortLabel = "cycle"
 	}
 	sortText := fmt.Sprintf("%s↕ %s[-]", a.themeTags.SecondaryText, sortLabel)
 
