@@ -33,6 +33,7 @@ go.work.sum
 
 # Built binary (only at root level, not cmd/linear-tui/)
 /linear-tui
+/linear-tui-custom
 /main
 
 .cursor/
