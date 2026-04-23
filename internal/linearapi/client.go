@@ -955,6 +955,13 @@ func (c *Client) parseIssueNode(node interface{}) Issue {
 	cycleField := v.FieldByName("Cycle")
 	if cycleField.IsValid() && !cycleField.IsNil() {
 		cycleName = cycleField.Elem().FieldByName("Name").String()
+		if cycleName == "" {
+			// Cycle has no name set — fall back to "Cycle N"
+			number := int(cycleField.Elem().FieldByName("Number").Float())
+			if number > 0 {
+				cycleName = fmt.Sprintf("Cycle %d", number)
+			}
+		}
 	}
 
 	url := v.FieldByName("URL").String()
@@ -1068,6 +1075,10 @@ func (c *Client) FetchIssueByID(ctx context.Context, id string) (Issue, error) {
 				ID   graphql.String
 				Name graphql.String
 			}
+			Cycle *struct {
+				Name   graphql.String
+				Number graphql.Float
+			}
 			Labels struct {
 				Nodes []struct {
 					ID    graphql.String
@@ -1143,6 +1154,18 @@ func (c *Client) FetchIssueByID(ctx context.Context, id string) (Issue, error) {
 		projectName = string(query.Issue.Project.Name)
 	}
 
+	cycleName := ""
+	if query.Issue.Cycle != nil {
+		cycleName = string(query.Issue.Cycle.Name)
+		if cycleName == "" {
+			// Cycle has no name set — fall back to "Cycle N"
+			number := int(query.Issue.Cycle.Number)
+			if number > 0 {
+				cycleName = fmt.Sprintf("Cycle %d", number)
+			}
+		}
+	}
+
 	archived := query.Issue.ArchivedAt != nil
 
 	// Parse labels
@@ -1214,6 +1237,7 @@ func (c *Client) FetchIssueByID(ctx context.Context, id string) (Issue, error) {
 		TeamID:      string(query.Issue.Team.ID),
 		ProjectID:   projectID,
 		ProjectName: projectName,
+		CycleName:   cycleName,
 		URL:         string(query.Issue.URL),
 		Archived:    archived,
 		Labels:      labels,

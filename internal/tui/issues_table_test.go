@@ -8,11 +8,13 @@ import (
 )
 
 func TestRenderIssueRow(t *testing.T) {
+	// renderIssueRow returns: [identifier, cycleName, state, priorityText, project, title]
 	tests := []struct {
 		name      string
 		issue     linearapi.Issue
 		wantLen   int
 		wantID    string
+		wantCycle string
 		wantState string
 	}{
 		{
@@ -25,8 +27,25 @@ func TestRenderIssueRow(t *testing.T) {
 				Assignee:   "John Doe",
 				Priority:   3, // Normal priority
 			},
-			wantLen:   5,
+			wantLen:   6,
 			wantID:    "LIN-1",
+			wantCycle: "-",
+			wantState: "Todo",
+		},
+		{
+			name: "issue with cycle",
+			issue: linearapi.Issue{
+				ID:         "test-1b",
+				Identifier: "LIN-1B",
+				Title:      "Test Issue With Cycle",
+				State:      "Todo",
+				Assignee:   "John Doe",
+				Priority:   3,
+				CycleName:  "Cycle 3",
+			},
+			wantLen:   6,
+			wantID:    "LIN-1B",
+			wantCycle: "Cycle 3",
 			wantState: "Todo",
 		},
 		{
@@ -39,8 +58,9 @@ func TestRenderIssueRow(t *testing.T) {
 				Assignee:   "",
 				Priority:   2, // High priority
 			},
-			wantLen:   5,
+			wantLen:   6,
 			wantID:    "LIN-2",
+			wantCycle: "-",
 			wantState: "In Progres", // truncated to 10 chars
 		},
 		{
@@ -53,8 +73,9 @@ func TestRenderIssueRow(t *testing.T) {
 				Assignee:   "Jane",
 				Priority:   1, // Urgent priority
 			},
-			wantLen:   5,
+			wantLen:   6,
 			wantID:    "VERY-LONG-", // truncated to 10 chars
+			wantCycle: "-",
 			wantState: "Done",
 		},
 	}
@@ -68,12 +89,15 @@ func TestRenderIssueRow(t *testing.T) {
 			if len(row) > 0 && row[0] != tt.wantID {
 				t.Errorf("renderIssueRow()[0] = %q, want %q", row[0], tt.wantID)
 			}
-			if len(row) > 1 && row[1] != tt.wantState {
-				t.Errorf("renderIssueRow()[1] = %q, want %q", row[1], tt.wantState)
+			if len(row) > 1 && row[1] != tt.wantCycle {
+				t.Errorf("renderIssueRow()[1] = %q, want %q", row[1], tt.wantCycle)
 			}
-			// Column 3 is now Project (empty = "-")
-			if len(row) > 3 && tt.issue.ProjectName == "" && row[3] != "-" {
-				t.Errorf("renderIssueRow()[3] = %q, want %q", row[3], "-")
+			if len(row) > 2 && row[2] != tt.wantState {
+				t.Errorf("renderIssueRow()[2] = %q, want %q", row[2], tt.wantState)
+			}
+			// Column 4 is Project (empty = "-")
+			if len(row) > 4 && tt.issue.ProjectName == "" && row[4] != "-" {
+				t.Errorf("renderIssueRow()[4] = %q, want %q", row[4], "-")
 			}
 		})
 	}
@@ -87,6 +111,7 @@ func TestRenderIssueRow_Truncation(t *testing.T) {
 		State:      "ABCDEFGHIJKLMNOP", // 16 chars
 		Assignee:   "ABCDEFGHIJKLMNOP", // 16 chars
 		Priority:   1,
+		CycleName:  "ABCDEFGHIJKLMNOPQRSTUV", // 22 chars
 		UpdatedAt:  time.Now(),
 	}
 
@@ -97,11 +122,13 @@ func TestRenderIssueRow_Truncation(t *testing.T) {
 		t.Errorf("Identifier length = %d, want <= 10", len(row[0]))
 	}
 
-	// State should be truncated to 10 chars
-	if len(row[1]) > 10 {
-		t.Errorf("State length = %d, want <= 10", len(row[1]))
+	// Cycle should be truncated to 16 chars
+	if len(row[1]) > 16 {
+		t.Errorf("Cycle length = %d, want <= 16", len(row[1]))
 	}
 
-	// Priority is column 2 (no truncation needed for formatted priority)
-	// Column 3 is now Project (no truncation in this test since ProjectName is empty → "-")
+	// State should be truncated to 10 chars
+	if len(row[2]) > 10 {
+		t.Errorf("State length = %d, want <= 10", len(row[2]))
+	}
 }

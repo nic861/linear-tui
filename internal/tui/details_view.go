@@ -147,6 +147,11 @@ func (a *App) updateDetailsView() {
 
 	headerLines = append(headerLines, fmt.Sprintf("%sPriority:[-]   %s%d[-]", keyColor, valColor, issue.Priority))
 
+	// Cycle
+	if issue.CycleName != "" {
+		headerLines = append(headerLines, fmt.Sprintf("%sCycle:[-]      %s%s[-]", keyColor, valColor, issue.CycleName))
+	}
+
 	// Labels
 	labelsText := "No labels"
 	if len(issue.Labels) > 0 {
