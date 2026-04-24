@@ -11,8 +11,8 @@
 - Tier: Full
 - Baseline SHA: 3948ec3955eb1698916ba0c45fe9944aa3c2bb75
 - Implementation SHA: pending
-- Status: DRAFT
-- Spec hash: 
+- Status: LOCKED
+- Spec hash: f9b5487d96f396547d4ecbe3414898e03329cc0a81d3f1a776100b224814f563
 
 ## 2) Objective
 - Problem statement: The `linear-tui` TUI renders Parent/Children hierarchy but ignores blocker relations. `blockedBy` is the canonical "what's next?" signal across all 15 epics in Linear, so users must context-switch to the Linear web app to see blocker state — defeating the point of a local TUI.
@@ -95,21 +95,20 @@
 | FR-009 | Refactor `internal/tui/issues_table.go` row render at lines 316-332 to extract a pure `renderIdentifierCell(issue *linearapi.Issue, theme Theme, issueRow IssueRow) *tview.TableCell` helper that returns a configured `*tview.TableCell` for the identifier column. Cell text is `identifierPrefix + identifier`. Cell color is `theme.StatusBlocked` when `isBlocked(issue)` is true, else `theme.SecondaryText`. Cell alignment is `tview.AlignLeft`. | P0 | Enables unit testing the blocked-color logic by inspecting the returned cell; satisfies AC coverage. |
 | FR-010 | Add `StatusBlocked tcell.Color` field to the `Theme` struct in `internal/tui/theme.go` (after `StatusCanceled`). | P0 | Theme struct must declare the field before variants can set it. |
 | FR-011 | Set `StatusBlocked` values in all three theme variants: `LinearTheme` = `tcell.NewRGBColor(200, 80, 80)` (#C85050), `HighContrastTheme` = `tcell.NewRGBColor(255, 60, 60)` (#FF3C3C), `ColorBlindTheme` = `tcell.NewRGBColor(204, 121, 167)` (#CC79A7 — Okabe-Ito reddish-purple, not red, to preserve the theme's color-blind-safe palette). | P0 | Visible color for the blocked indicator. Color-blind theme specifically avoids red to preserve accessibility. |
-| FR-012 | Backfill `issueNodeJSON` helper in `internal/linearapi/client_test.go:15-34` to include `state.type` (matching Issue.StateType) and `cycle` (matching Issue.CycleName) fields. All existing tests continue to pass. | P1 | Audit OBS-1 rolled in. Ensures test fixtures exercise the full parse path including state type and cycle. Prerequisite for TestParseIssueNode_Relations which needs a well-formed fixture. |
 
 ## 7) Behavioral Acceptance Criteria
 
 ### AC-001: Parser populates Blocks from relations[type=blocks]
-Covers: FR-003, FR-004, FR-005
+Covers: FR-001, FR-002, FR-003, FR-004, FR-005
 Given a GraphQL response JSON where the issue node has `relations.nodes` containing one entry with `type="blocks"` and `relatedIssue.identifier="BLOCK-A"`, `relatedIssue.state.type="started"`
 When `parseIssueNode` processes this response (via any of the three query code paths)
-Then the returned `Issue.Blocks` has length 1, with `Identifier="BLOCK-A"` and `StateType="started"`, and `Issue.BlockedBy` is empty
+Then the returned `Issue.Blocks` has length 1, with a value of Go type `IssueRelationRef` having `Identifier="BLOCK-A"` and `StateType="started"`, and `Issue.BlockedBy` is empty
 
 ### AC-002: Parser populates BlockedBy from inverseRelations[type=blocks]
-Covers: FR-003, FR-004, FR-005
+Covers: FR-001, FR-002, FR-003, FR-004, FR-005
 Given a GraphQL response JSON where the issue node has `inverseRelations.nodes` containing one entry with `type="blocks"` and `issue.identifier="BLOCKER-B"`, `issue.state.type="backlog"`
 When `parseIssueNode` processes this response
-Then the returned `Issue.BlockedBy` has length 1, with `Identifier="BLOCKER-B"` and `StateType="backlog"`, and `Issue.Blocks` is empty
+Then the returned `Issue.BlockedBy` has length 1, with a value of Go type `IssueRelationRef` having `Identifier="BLOCKER-B"` and `StateType="backlog"`, and `Issue.Blocks` is empty
 
 ### AC-003: Parser filters out non-blocks relation types
 Covers: FR-004, FR-005
@@ -118,10 +117,10 @@ When `parseIssueNode` processes this response
 Then `Issue.Blocks` has length exactly 1 containing "B1", and neither "R1" nor "D1" appear in Blocks or BlockedBy
 
 ### AC-004: All three query paths support relations
-Covers: FR-003
+Covers: FR-001, FR-002, FR-003
 Given the client has mock server responses that include `relations` and `inverseRelations` data
 When `FetchIssueByID`, `FetchIssuesPage` (standard), and the search path all execute against the mock server
-Then each returned Issue includes the populated `BlockedBy` and `Blocks` fields (not nil, not empty for the test fixture)
+Then each returned `Issue` value exposes populated `Issue.BlockedBy` and `Issue.Blocks` slices (of type `[]IssueRelationRef`, non-nil and non-empty for the test fixture)
 
 ### AC-005: isBlocked returns true when any blocker is active
 Covers: FR-008
@@ -341,7 +340,7 @@ All commands run from the worktree root: `/Users/nic/el/.worktrees/linear-tui/ef
 | Test ID | Type | Covers | Command | Expected Result |
 |---|---|---|---|---|
 | T-001 | unit | AC-001, AC-002, AC-003 | `go test -run TestParseIssueNode_Relations ./internal/linearapi/...` | Exit 0; test passes. Asserts parser extracts Blocks, BlockedBy, and filters out non-blocks types. |
-| T-002 | unit | FR-012 | `go test -count=1 ./internal/linearapi/...` | Exit 0; all pre-existing linearapi tests continue to pass after issueNodeJSON backfill. Also exercised by T-012 — retained here for explicit FR-012 traceability. |
+| T-002 | unit | NFR-005 | `go test -count=1 ./internal/linearapi/...` | Exit 0; all pre-existing linearapi tests continue to pass after the `issueNodeJSON` fixture backfill (see Section 12 Step 4). More surgical than T-012 — targets the package where the fixture change lives. |
 | T-003 | unit | AC-005, AC-006, AC-007, AC-014 | `go test -run TestIsBlocked ./internal/tui/...` | Exit 0; isBlocked returns correct boolean for each of: empty BlockedBy, one active blocker, all terminal blockers, mixed (at least one active). |
 | T-004 | unit | AC-004 | `go test -run TestQueryPaths_PopulateRelations ./internal/linearapi/...` | Exit 0; single consolidated test exercises the `FetchIssueByID`, `FetchIssuesPage`, and `searchIssuesPage` code paths against a mock HTTP server and asserts each returned Issue has populated BlockedBy and Blocks. |
 | T-005 | unit | AC-012, AC-013, AC-014 | `go test -run TestRenderIdentifierCell_BlockedColor ./internal/tui/...` | Exit 0; cell color is StatusBlocked for open blocker, SecondaryText for no/terminal blockers. |
