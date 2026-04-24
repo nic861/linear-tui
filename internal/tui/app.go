@@ -25,8 +25,8 @@ const (
 	SortByCreatedAt      SortField = "createdAt"
 	SortByPriority       SortField = "priority"
 	SortByProjectStatus  SortField = "projectStatus"  // project → status → priority
-	SortByStatusPriority SortField = "statusPriority"  // status → priority
-	SortByCycle          SortField = "cycle"           // cycle → status → priority
+	SortByStatusPriority SortField = "statusPriority" // status → priority
+	SortByCycle          SortField = "cycle"          // cycle → status → priority
 )
 
 // App is the main application controller that manages all UI components.
@@ -109,9 +109,9 @@ type App struct {
 	detailsCommentsVisible bool // Tracks whether comments view is shown
 
 	// Pane resize state
-	contentFlex    *tview.Flex // Horizontal split: issues | details
-	splitRatio     float64     // 0.0–1.0, fraction of width for issues pane
-	draggingSplit  bool        // True while mouse is dragging the split border
+	contentFlex   *tview.Flex // Horizontal split: issues | details
+	splitRatio    float64     // 0.0–1.0, fraction of width for issues pane
+	draggingSplit bool        // True while mouse is dragging the split border
 }
 
 // FocusTarget indicates which pane has focus.
@@ -388,7 +388,6 @@ func (a *App) applyIssuesTableTheme(table *tview.Table) {
 		Bold(true))
 }
 
-
 func (a *App) currentSelectedIssueID() string {
 	if a.issuesTable == nil {
 		return ""
@@ -443,7 +442,6 @@ func parseLogLevel(level string) logger.LogLevel {
 		return logger.LevelWarning
 	}
 }
-
 
 // buildLayout constructs the main UI layout.
 func (a *App) buildLayout() {

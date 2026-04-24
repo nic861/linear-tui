@@ -20,8 +20,8 @@ type PickerModal struct {
 	helpText   *tview.TextView
 	items      []PickerItem
 	onSelect   func(item PickerItem)
-	onToggle   func(item PickerItem)    // Called on Space in toggle mode
-	onDismiss  func()                    // Called on Enter/Esc in toggle mode
+	onToggle   func(item PickerItem) // Called on Space in toggle mode
+	onDismiss  func()                // Called on Enter/Esc in toggle mode
 	toggleMode bool
 }
 

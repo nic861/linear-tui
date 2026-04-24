@@ -198,4 +198,3 @@ func TestRefreshIssues_PreservesNavigationFocus(t *testing.T) {
 		t.Fatalf("focusedPane = %v, want %v", app.focusedPane, FocusIssues)
 	}
 }
-
