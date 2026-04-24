@@ -247,8 +247,9 @@ func TestRenderIdentifierCell_BlockedColor(t *testing.T) {
 		if cell == nil {
 			t.Fatalf("renderIdentifierCell returned nil")
 		}
-		if cell.Color != blockedColor {
-			t.Errorf("cell.Color = %v, want StatusBlocked %v", cell.Color, blockedColor)
+		fg, _, _ := cell.Style.Decompose()
+		if fg != blockedColor {
+			t.Errorf("cell.Style foreground = %v, want StatusBlocked %v", fg, blockedColor)
 		}
 		if cell.Text != " EFF-1" {
 			t.Errorf("cell.Text = %q, want %q", cell.Text, " EFF-1")
@@ -264,11 +265,12 @@ func TestRenderIdentifierCell_BlockedColor(t *testing.T) {
 		if cell == nil {
 			t.Fatalf("renderIdentifierCell returned nil")
 		}
-		if cell.Color != secondaryColor {
-			t.Errorf("cell.Color = %v, want SecondaryText %v (no blockers)", cell.Color, secondaryColor)
+		fg, _, _ := cell.Style.Decompose()
+		if fg != secondaryColor {
+			t.Errorf("cell.Style foreground = %v, want SecondaryText %v (no blockers)", fg, secondaryColor)
 		}
-		if cell.Color == blockedColor {
-			t.Errorf("cell.Color should NOT be StatusBlocked when BlockedBy is empty")
+		if fg == blockedColor {
+			t.Errorf("cell.Style foreground should NOT be StatusBlocked when BlockedBy is empty")
 		}
 	})
 
@@ -283,8 +285,9 @@ func TestRenderIdentifierCell_BlockedColor(t *testing.T) {
 		if cell == nil {
 			t.Fatalf("renderIdentifierCell returned nil")
 		}
-		if cell.Color != secondaryColor {
-			t.Errorf("cell.Color = %v, want SecondaryText %v (all blockers terminal)", cell.Color, secondaryColor)
+		fg, _, _ := cell.Style.Decompose()
+		if fg != secondaryColor {
+			t.Errorf("cell.Style foreground = %v, want SecondaryText %v (all blockers terminal)", fg, secondaryColor)
 		}
 	})
 }
@@ -309,11 +312,12 @@ func TestRenderIdentifierCell_TerminalBlockersNotColored(t *testing.T) {
 	if cell == nil {
 		t.Fatalf("renderIdentifierCell returned nil")
 	}
-	if cell.Color == blockedColor {
-		t.Errorf("cell.Color = StatusBlocked, want SecondaryText — terminal-only blockers must not trigger the blocked color")
+	fg, _, _ := cell.Style.Decompose()
+	if fg == blockedColor {
+		t.Errorf("cell.Style foreground = StatusBlocked, want SecondaryText — terminal-only blockers must not trigger the blocked color")
 	}
-	if cell.Color != secondaryColor {
-		t.Errorf("cell.Color = %v, want SecondaryText %v", cell.Color, secondaryColor)
+	if fg != secondaryColor {
+		t.Errorf("cell.Style foreground = %v, want SecondaryText %v", fg, secondaryColor)
 	}
 }
 

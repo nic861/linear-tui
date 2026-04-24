@@ -62,8 +62,8 @@ func renderIdentifierCell(issue *linearapi.Issue, theme Theme, issueRow IssueRow
 	}
 
 	cell := tview.NewTableCell(identifierPrefix + issue.Identifier).
-		SetAlign(tview.AlignLeft)
-	cell.Color = textColor
+		SetAlign(tview.AlignLeft).
+		SetTextColor(textColor)
 	return cell
 }
 
