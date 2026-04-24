@@ -634,8 +634,7 @@ func (a *App) handleIssuesKey(event *tcell.EventKey) *tcell.EventKey {
 	case tcell.KeyRune:
 		r := event.Rune()
 		// Handle vim-style navigation first
-		switch r {
-		case 'l':
+		if r == 'l' {
 			a.focusedPane = FocusDetails
 			a.focusedDetailsView = false // Start with description
 			a.updateFocus()
@@ -1576,7 +1575,7 @@ var stateTypeLabels = map[string]string{
 	"triage":    "Triage",
 	"backlog":   "Backlog",
 	"completed": "Done",
-	"canceled":  "Cancelled",
+	"canceled":  "Canceled",
 }
 
 // stateTypeOrder is the display order for state types in the filter picker.
