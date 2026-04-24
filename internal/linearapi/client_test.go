@@ -17,7 +17,7 @@ func issueNodeJSON(id, identifier, title string) string {
 		"id": %q,
 		"identifier": %q,
 		"title": %q,
-		"state": {"id": "state-1", "name": "Todo"},
+		"state": {"id": "state-1", "name": "Todo", "type": "unstarted"},
 		"assignee": null,
 		"priority": 1,
 		"updatedAt": "2025-01-01T00:00:00Z",
@@ -25,12 +25,73 @@ func issueNodeJSON(id, identifier, title string) string {
 		"description": null,
 		"team": {"id": "team-1"},
 		"project": null,
+		"cycle": null,
 		"labels": {"nodes": []},
 		"url": "https://linear.app/issue/%s",
 		"archivedAt": null,
 		"parent": null,
 		"children": {"nodes": []}
 	}`, id, identifier, title, identifier)
+}
+
+// relationNodeJSON builds a single relations/inverseRelations entry.
+// innerKey must be "relatedIssue" for relations or "issue" for inverseRelations.
+func relationNodeJSON(relType, innerKey, innerID, innerIdent, innerTitle, innerStateName, innerStateType string) string {
+	return fmt.Sprintf(`{
+		"type": %q,
+		%q: {
+			"id": %q,
+			"identifier": %q,
+			"title": %q,
+			"state": {"name": %q, "type": %q}
+		}
+	}`, relType, innerKey, innerID, innerIdent, innerTitle, innerStateName, innerStateType)
+}
+
+// issueNodeJSONWithRelations returns an issue node JSON with relations and inverseRelations populated.
+// relationsNodes and inverseNodes must each be pre-built via relationNodeJSON.
+func issueNodeJSONWithRelations(id, identifier, title string, relationsNodes, inverseNodes []string) string {
+	return fmt.Sprintf(`{
+		"id": %q,
+		"identifier": %q,
+		"title": %q,
+		"state": {"id": "state-1", "name": "Todo", "type": "unstarted"},
+		"assignee": null,
+		"priority": 1,
+		"updatedAt": "2025-01-01T00:00:00Z",
+		"createdAt": "2025-01-01T00:00:00Z",
+		"description": null,
+		"team": {"id": "team-1"},
+		"project": null,
+		"cycle": null,
+		"labels": {"nodes": []},
+		"url": "https://linear.app/issue/%s",
+		"archivedAt": null,
+		"parent": null,
+		"children": {"nodes": []},
+		"relations": {"nodes": [%s]},
+		"inverseRelations": {"nodes": [%s]}
+	}`, id, identifier, title, identifier, strings.Join(relationsNodes, ","), strings.Join(inverseNodes, ","))
+}
+
+// issueByIDResponse wraps a single issue node in a FetchIssueByID response envelope.
+func issueByIDResponse(node string) string {
+	return fmt.Sprintf(`{"data": {"issue": %s}}`, node)
+}
+
+// searchIssuesPageResponse wraps issue nodes in a searchIssues response envelope.
+func searchIssuesPageResponse(nodes []string, hasNextPage bool, endCursor string) string {
+	return fmt.Sprintf(`{
+		"data": {
+			"searchIssues": {
+				"nodes": [%s],
+				"pageInfo": {
+					"hasNextPage": %t,
+					"endCursor": %q
+				}
+			}
+		}
+	}`, strings.Join(nodes, ","), hasNextPage, endCursor)
 }
 
 // issuesPageResponse builds a GraphQL response with issue nodes and page info.
@@ -855,4 +916,259 @@ func TestUpdateIssueInput_ParentID(t *testing.T) {
 			t.Errorf("ParentID = %q, want %q", *input.ParentID, "parent-456")
 		}
 	})
+}
+
+// TestParseIssueNode_Relations verifies the reflection parser populates Blocks and BlockedBy
+// from relations/inverseRelations and filters out non-"blocks" relation types.
+// Covers AC-001, AC-002, AC-003 (T-001). Exercised through FetchIssuesPage (non-search)
+// since parseIssueNode is package-internal and this is the contract-level surface.
+func TestParseIssueNode_Relations(t *testing.T) {
+	relations := []string{
+		relationNodeJSON("blocks", "relatedIssue", "rel-1", "B1", "Thing I block", "In Progress", "started"),
+		relationNodeJSON("related", "relatedIssue", "rel-2", "R1", "Related thing", "Todo", "unstarted"),
+		relationNodeJSON("duplicate", "relatedIssue", "rel-3", "D1", "Dup thing", "Done", "completed"),
+	}
+	inverse := []string{
+		relationNodeJSON("blocks", "issue", "inv-1", "BLOCKER-B", "Thing blocking me", "Backlog", "backlog"),
+	}
+	node := issueNodeJSONWithRelations("issue-1", "EFF-1", "Target", relations, inverse)
+	response := issuesPageResponse([]string{node}, false, "")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(response))
+	}))
+	defer server.Close()
+
+	client := NewClient(ClientConfig{Token: "t", Endpoint: server.URL})
+	page, err := client.FetchIssuesPage(context.Background(), FetchIssuesParams{First: 1}, nil)
+	if err != nil {
+		t.Fatalf("FetchIssuesPage() error: %v", err)
+	}
+	if len(page.Issues) != 1 {
+		t.Fatalf("Issues = %d, want 1", len(page.Issues))
+	}
+	issue := page.Issues[0]
+
+	// AC-001 + AC-003: Blocks contains only the "blocks"-typed relation ("B1"); "R1"/"D1" filtered out.
+	if len(issue.Blocks) != 1 {
+		t.Fatalf("Blocks length = %d, want 1 (non-blocks types should be filtered). Got: %#v", len(issue.Blocks), issue.Blocks)
+	}
+	if issue.Blocks[0].Identifier != "B1" {
+		t.Errorf("Blocks[0].Identifier = %q, want %q", issue.Blocks[0].Identifier, "B1")
+	}
+	if issue.Blocks[0].StateType != "started" {
+		t.Errorf("Blocks[0].StateType = %q, want %q", issue.Blocks[0].StateType, "started")
+	}
+
+	// AC-002: BlockedBy contains the inverseRelations entry.
+	if len(issue.BlockedBy) != 1 {
+		t.Fatalf("BlockedBy length = %d, want 1. Got: %#v", len(issue.BlockedBy), issue.BlockedBy)
+	}
+	if issue.BlockedBy[0].Identifier != "BLOCKER-B" {
+		t.Errorf("BlockedBy[0].Identifier = %q, want %q", issue.BlockedBy[0].Identifier, "BLOCKER-B")
+	}
+	if issue.BlockedBy[0].StateType != "backlog" {
+		t.Errorf("BlockedBy[0].StateType = %q, want %q", issue.BlockedBy[0].StateType, "backlog")
+	}
+
+	// AC-003 cross-check: neither "R1" nor "D1" anywhere.
+	for _, r := range issue.Blocks {
+		if r.Identifier == "R1" || r.Identifier == "D1" {
+			t.Errorf("non-blocks identifier leaked into Blocks: %s", r.Identifier)
+		}
+	}
+	for _, r := range issue.BlockedBy {
+		if r.Identifier == "R1" || r.Identifier == "D1" {
+			t.Errorf("non-blocks identifier leaked into BlockedBy: %s", r.Identifier)
+		}
+	}
+}
+
+// TestQueryPaths_PopulateRelations verifies all three query paths (FetchIssueByID, issues, searchIssues)
+// populate BlockedBy and Blocks. Each path has its own inline GraphQL query struct, so this test
+// fails if Relations/InverseRelations selections are missed on any one of the three.
+// Covers AC-004 (T-004).
+func TestQueryPaths_PopulateRelations(t *testing.T) {
+	// Shared fixture: one issue with one relations entry and one inverseRelations entry.
+	buildNode := func(id, identifier string) string {
+		relations := []string{
+			relationNodeJSON("blocks", "relatedIssue", "out-1", "OUT-1", "Downstream", "Todo", "unstarted"),
+		}
+		inverse := []string{
+			relationNodeJSON("blocks", "issue", "in-1", "IN-1", "Upstream", "In Progress", "started"),
+		}
+		return issueNodeJSONWithRelations(id, identifier, "Target", relations, inverse)
+	}
+
+	t.Run("FetchIssueByID", func(t *testing.T) {
+		response := issueByIDResponse(buildNode("issue-x", "EFF-X"))
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(response))
+		}))
+		defer server.Close()
+
+		client := NewClient(ClientConfig{Token: "t", Endpoint: server.URL})
+		issue, err := client.FetchIssueByID(context.Background(), "issue-x")
+		if err != nil {
+			t.Fatalf("FetchIssueByID() error: %v", err)
+		}
+		if len(issue.Blocks) == 0 || len(issue.BlockedBy) == 0 {
+			t.Fatalf("FetchIssueByID path: want Blocks and BlockedBy non-empty; got Blocks=%#v BlockedBy=%#v", issue.Blocks, issue.BlockedBy)
+		}
+		if issue.Blocks[0].Identifier != "OUT-1" {
+			t.Errorf("FetchIssueByID Blocks[0].Identifier = %q, want OUT-1", issue.Blocks[0].Identifier)
+		}
+		if issue.BlockedBy[0].Identifier != "IN-1" {
+			t.Errorf("FetchIssueByID BlockedBy[0].Identifier = %q, want IN-1", issue.BlockedBy[0].Identifier)
+		}
+	})
+
+	t.Run("FetchIssuesPage non-search (issues query)", func(t *testing.T) {
+		response := issuesPageResponse([]string{buildNode("issue-y", "EFF-Y")}, false, "")
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(response))
+		}))
+		defer server.Close()
+
+		client := NewClient(ClientConfig{Token: "t", Endpoint: server.URL})
+		page, err := client.FetchIssuesPage(context.Background(), FetchIssuesParams{First: 1}, nil)
+		if err != nil {
+			t.Fatalf("FetchIssuesPage() error: %v", err)
+		}
+		if len(page.Issues) != 1 {
+			t.Fatalf("Issues = %d, want 1", len(page.Issues))
+		}
+		issue := page.Issues[0]
+		if len(issue.Blocks) == 0 || len(issue.BlockedBy) == 0 {
+			t.Fatalf("issues query path: want Blocks and BlockedBy non-empty; got Blocks=%#v BlockedBy=%#v", issue.Blocks, issue.BlockedBy)
+		}
+		if issue.Blocks[0].Identifier != "OUT-1" {
+			t.Errorf("issues Blocks[0].Identifier = %q, want OUT-1", issue.Blocks[0].Identifier)
+		}
+		if issue.BlockedBy[0].Identifier != "IN-1" {
+			t.Errorf("issues BlockedBy[0].Identifier = %q, want IN-1", issue.BlockedBy[0].Identifier)
+		}
+	})
+
+	t.Run("FetchIssuesPage search (searchIssues query)", func(t *testing.T) {
+		response := searchIssuesPageResponse([]string{buildNode("issue-z", "EFF-Z")}, false, "")
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(response))
+		}))
+		defer server.Close()
+
+		client := NewClient(ClientConfig{Token: "t", Endpoint: server.URL})
+		page, err := client.FetchIssuesPage(context.Background(), FetchIssuesParams{First: 1, Search: "target"}, nil)
+		if err != nil {
+			t.Fatalf("FetchIssuesPage(Search) error: %v", err)
+		}
+		if len(page.Issues) != 1 {
+			t.Fatalf("Issues = %d, want 1", len(page.Issues))
+		}
+		issue := page.Issues[0]
+		if len(issue.Blocks) == 0 || len(issue.BlockedBy) == 0 {
+			t.Fatalf("searchIssues path: want Blocks and BlockedBy non-empty; got Blocks=%#v BlockedBy=%#v", issue.Blocks, issue.BlockedBy)
+		}
+		if issue.Blocks[0].Identifier != "OUT-1" {
+			t.Errorf("searchIssues Blocks[0].Identifier = %q, want OUT-1", issue.Blocks[0].Identifier)
+		}
+		if issue.BlockedBy[0].Identifier != "IN-1" {
+			t.Errorf("searchIssues BlockedBy[0].Identifier = %q, want IN-1", issue.BlockedBy[0].Identifier)
+		}
+	})
+}
+
+// TestParseIssueNode_Relations_CaseSensitiveFilter locks in the case-sensitive
+// match on relation Type ("blocks" only, not "BLOCKS"). Documents ASM-001.
+// Covers T-INV-001.
+func TestParseIssueNode_Relations_CaseSensitiveFilter(t *testing.T) {
+	relations := []string{
+		relationNodeJSON("BLOCKS", "relatedIssue", "r-1", "UP-1", "Uppercase type", "Todo", "unstarted"),
+	}
+	inverse := []string{
+		relationNodeJSON("BLOCKS", "issue", "i-1", "UP-2", "Uppercase type inv", "Todo", "unstarted"),
+	}
+	node := issueNodeJSONWithRelations("issue-1", "EFF-1", "Target", relations, inverse)
+	response := issuesPageResponse([]string{node}, false, "")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(response))
+	}))
+	defer server.Close()
+
+	client := NewClient(ClientConfig{Token: "t", Endpoint: server.URL})
+	page, err := client.FetchIssuesPage(context.Background(), FetchIssuesParams{First: 1}, nil)
+	if err != nil {
+		t.Fatalf("FetchIssuesPage() error: %v", err)
+	}
+	if len(page.Issues) != 1 {
+		t.Fatalf("Issues = %d, want 1", len(page.Issues))
+	}
+	issue := page.Issues[0]
+	if len(issue.Blocks) != 0 {
+		t.Errorf("Blocks = %#v, want empty (uppercase BLOCKS should be filtered out)", issue.Blocks)
+	}
+	if len(issue.BlockedBy) != 0 {
+		t.Errorf("BlockedBy = %#v, want empty (uppercase BLOCKS should be filtered out)", issue.BlockedBy)
+	}
+}
+
+// TestParseIssueNode_Relations_SemanticsNotSwapped pins the asymmetric mapping:
+// relations → Blocks (issues THIS one blocks), inverseRelations → BlockedBy
+// (issues blocking THIS one). If a future refactor swaps them, this test fails.
+// Documents ASM-002. Covers T-INV-002.
+func TestParseIssueNode_Relations_SemanticsNotSwapped(t *testing.T) {
+	relations := []string{
+		relationNodeJSON("blocks", "relatedIssue", "rel-1", "BLOCKED-BY-ME", "Downstream", "Todo", "unstarted"),
+	}
+	inverse := []string{
+		relationNodeJSON("blocks", "issue", "inv-1", "BLOCKER-OF-ME", "Upstream", "In Progress", "started"),
+	}
+	node := issueNodeJSONWithRelations("issue-1", "EFF-1", "Target", relations, inverse)
+	response := issuesPageResponse([]string{node}, false, "")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(response))
+	}))
+	defer server.Close()
+
+	client := NewClient(ClientConfig{Token: "t", Endpoint: server.URL})
+	page, err := client.FetchIssuesPage(context.Background(), FetchIssuesParams{First: 1}, nil)
+	if err != nil {
+		t.Fatalf("FetchIssuesPage() error: %v", err)
+	}
+	if len(page.Issues) != 1 {
+		t.Fatalf("Issues = %d, want 1", len(page.Issues))
+	}
+	issue := page.Issues[0]
+
+	if len(issue.Blocks) != 1 || issue.Blocks[0].Identifier != "BLOCKED-BY-ME" {
+		t.Errorf("Blocks = %#v, want exactly [BLOCKED-BY-ME] (relations → Blocks)", issue.Blocks)
+	}
+	if len(issue.BlockedBy) != 1 || issue.BlockedBy[0].Identifier != "BLOCKER-OF-ME" {
+		t.Errorf("BlockedBy = %#v, want exactly [BLOCKER-OF-ME] (inverseRelations → BlockedBy)", issue.BlockedBy)
+	}
+	// Reject the swapped mapping explicitly.
+	for _, r := range issue.Blocks {
+		if r.Identifier == "BLOCKER-OF-ME" {
+			t.Errorf("Blocks contains BLOCKER-OF-ME — Relations/InverseRelations appear swapped")
+		}
+	}
+	for _, r := range issue.BlockedBy {
+		if r.Identifier == "BLOCKED-BY-ME" {
+			t.Errorf("BlockedBy contains BLOCKED-BY-ME — Relations/InverseRelations appear swapped")
+		}
+	}
 }

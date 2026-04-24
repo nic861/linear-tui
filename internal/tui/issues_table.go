@@ -32,6 +32,41 @@ func formatPriority(priority int, theme Theme) (string, tcell.Color) {
 	}
 }
 
+func isBlocked(issue *linearapi.Issue) bool {
+	if issue == nil {
+		return false
+	}
+	for _, blocker := range issue.BlockedBy {
+		if blocker.StateType != "completed" && blocker.StateType != "canceled" {
+			return true
+		}
+	}
+	return false
+}
+
+func renderIdentifierCell(issue *linearapi.Issue, theme Theme, issueRow IssueRow) *tview.TableCell {
+	identifierPrefix := " "
+	if issueRow.Level > 0 {
+		identifierPrefix = " " + IconChildPrefix + " "
+	} else if issueRow.HasChildren {
+		if issueRow.IsExpanded {
+			identifierPrefix = " " + IconExpanded + " "
+		} else {
+			identifierPrefix = " " + IconCollapsed + " "
+		}
+	}
+
+	textColor := theme.SecondaryText
+	if isBlocked(issue) {
+		textColor = theme.StatusBlocked
+	}
+
+	cell := tview.NewTableCell(identifierPrefix + issue.Identifier).
+		SetAlign(tview.AlignLeft)
+	cell.Color = textColor
+	return cell
+}
+
 // getIssueFromRow returns the issue for a given table row (accounting for header).
 // Returns nil if the row is invalid.
 func (a *App) getIssueFromRow(row int) *linearapi.Issue {
@@ -313,23 +348,7 @@ func renderIssuesTableModel(table *tview.Table, rows []IssueRow, idToIssue map[s
 			continue
 		}
 
-		// Build identifier with hierarchy indicator
-		identifier := issue.Identifier
-		identifierPrefix := " "
-
-		if issueRow.Level > 0 {
-			identifierPrefix = " " + IconChildPrefix + " "
-		} else if issueRow.HasChildren {
-			if issueRow.IsExpanded {
-				identifierPrefix = " " + IconExpanded + " "
-			} else {
-				identifierPrefix = " " + IconCollapsed + " "
-			}
-		}
-
-		table.SetCell(row, 0, tview.NewTableCell(identifierPrefix+identifier).
-			SetTextColor(theme.SecondaryText).
-			SetAlign(tview.AlignLeft))
+		table.SetCell(row, 0, renderIdentifierCell(issue, theme, issueRow))
 
 		// Cycle
 		cycleName := issue.CycleName

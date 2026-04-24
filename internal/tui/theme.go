@@ -26,6 +26,7 @@ type Theme struct {
 	StatusInProgress tcell.Color
 	StatusDone       tcell.Color
 	StatusCanceled   tcell.Color
+	StatusBlocked    tcell.Color
 }
 
 // LinearTheme is the default dark theme inspired by Linear.
@@ -46,6 +47,7 @@ var LinearTheme = Theme{
 	StatusInProgress: tcell.NewRGBColor(242, 201, 76),  // Yellow
 	StatusDone:       tcell.NewRGBColor(94, 106, 210),  // Purple/Blue (Linear uses purple for done often, or green)
 	StatusCanceled:   tcell.NewRGBColor(255, 80, 80),   // Red
+	StatusBlocked:    tcell.NewRGBColor(255, 140, 0),   // Bright orange (distinct from Canceled red)
 }
 
 // HighContrastTheme is a high contrast theme for improved legibility.
@@ -66,6 +68,7 @@ var HighContrastTheme = Theme{
 	StatusInProgress: tcell.NewRGBColor(255, 255, 0),   // Yellow
 	StatusDone:       tcell.NewRGBColor(0, 255, 0),     // Green
 	StatusCanceled:   tcell.NewRGBColor(255, 0, 0),     // Red
+	StatusBlocked:    tcell.NewRGBColor(255, 140, 0),   // Bright orange (distinct from Canceled red)
 }
 
 // ColorBlindTheme is a color-blind friendly palette.
@@ -86,6 +89,7 @@ var ColorBlindTheme = Theme{
 	StatusInProgress: tcell.NewRGBColor(86, 180, 233),  // #56B4E9
 	StatusDone:       tcell.NewRGBColor(0, 158, 115),   // #009E73
 	StatusCanceled:   tcell.NewRGBColor(213, 94, 0),    // #D55E00
+	StatusBlocked:    tcell.NewRGBColor(204, 121, 167), // #CC79A7
 }
 
 // ThemeTags provides tview tag strings derived from a theme.

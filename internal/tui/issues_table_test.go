@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gdamore/tcell/v2"
 	"github.com/roeyazroel/linear-tui/internal/linearapi"
 )
 
@@ -130,5 +131,226 @@ func TestRenderIssueRow_Truncation(t *testing.T) {
 	// State should be truncated to 10 chars
 	if len(row[2]) > 10 {
 		t.Errorf("State length = %d, want <= 10", len(row[2]))
+	}
+}
+
+// TestIsBlocked covers the isBlocked predicate across empty, active, terminal,
+// and mixed blocker lists. Covers AC-005, AC-006, AC-007 (T-003).
+func TestIsBlocked(t *testing.T) {
+	tests := []struct {
+		name string
+		in   *linearapi.Issue
+		want bool
+	}{
+		{
+			name: "nil BlockedBy returns false",
+			in:   &linearapi.Issue{BlockedBy: nil},
+			want: false,
+		},
+		{
+			name: "empty BlockedBy returns false",
+			in:   &linearapi.Issue{BlockedBy: []linearapi.IssueRelationRef{}},
+			want: false,
+		},
+		{
+			name: "one active blocker (started) returns true",
+			in: &linearapi.Issue{BlockedBy: []linearapi.IssueRelationRef{
+				{Identifier: "A-1", StateType: "started"},
+			}},
+			want: true,
+		},
+		{
+			name: "one active blocker (backlog) returns true",
+			in: &linearapi.Issue{BlockedBy: []linearapi.IssueRelationRef{
+				{Identifier: "A-2", StateType: "backlog"},
+			}},
+			want: true,
+		},
+		{
+			name: "one active blocker (unstarted) returns true",
+			in: &linearapi.Issue{BlockedBy: []linearapi.IssueRelationRef{
+				{Identifier: "A-3", StateType: "unstarted"},
+			}},
+			want: true,
+		},
+		{
+			name: "all terminal blockers (completed + canceled) returns false",
+			in: &linearapi.Issue{BlockedBy: []linearapi.IssueRelationRef{
+				{Identifier: "C-1", StateType: "completed"},
+				{Identifier: "C-2", StateType: "canceled"},
+			}},
+			want: false,
+		},
+		{
+			name: "mixed: one active among terminals returns true",
+			in: &linearapi.Issue{BlockedBy: []linearapi.IssueRelationRef{
+				{Identifier: "C-1", StateType: "completed"},
+				{Identifier: "A-1", StateType: "started"},
+				{Identifier: "C-2", StateType: "canceled"},
+			}},
+			want: true,
+		},
+		{
+			name: "empty StateType treated as active (conservative)",
+			in: &linearapi.Issue{BlockedBy: []linearapi.IssueRelationRef{
+				{Identifier: "U-1", StateType: ""},
+			}},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isBlocked(tt.in)
+			if got != tt.want {
+				t.Errorf("isBlocked(%q) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestIsBlocked_TerminalStatesFalse is the focused invalidation test for ASM-003:
+// if someone removes or negates the StateType gate, an all-terminal BlockedBy would
+// start returning true and this test fails. Covers T-INV-003.
+func TestIsBlocked_TerminalStatesFalse(t *testing.T) {
+	issue := &linearapi.Issue{
+		BlockedBy: []linearapi.IssueRelationRef{
+			{Identifier: "DONE-1", State: "Done", StateType: "completed"},
+			{Identifier: "CAN-1", State: "Canceled", StateType: "canceled"},
+		},
+	}
+	if isBlocked(issue) {
+		t.Errorf("isBlocked = true, want false when all blockers are {completed, canceled}")
+	}
+}
+
+// TestRenderIdentifierCell_BlockedColor verifies the identifier cell takes the
+// StatusBlocked color iff the issue has at least one active blocker.
+// Covers AC-012, AC-013, AC-014 (T-005).
+func TestRenderIdentifierCell_BlockedColor(t *testing.T) {
+	blockedColor := tcell.NewRGBColor(200, 80, 80)
+	secondaryColor := tcell.NewRGBColor(120, 120, 120)
+	theme := Theme{
+		SecondaryText: secondaryColor,
+		StatusBlocked: blockedColor,
+	}
+	row := IssueRow{Level: 0, HasChildren: false, IsExpanded: false}
+
+	t.Run("active blocker → StatusBlocked color", func(t *testing.T) {
+		issue := &linearapi.Issue{
+			Identifier: "EFF-1",
+			BlockedBy: []linearapi.IssueRelationRef{
+				{Identifier: "BL-1", StateType: "started"},
+			},
+		}
+		cell := renderIdentifierCell(issue, theme, row)
+		if cell == nil {
+			t.Fatalf("renderIdentifierCell returned nil")
+		}
+		if cell.Color != blockedColor {
+			t.Errorf("cell.Color = %v, want StatusBlocked %v", cell.Color, blockedColor)
+		}
+		if cell.Text != " EFF-1" {
+			t.Errorf("cell.Text = %q, want %q", cell.Text, " EFF-1")
+		}
+	})
+
+	t.Run("no blockers → SecondaryText color", func(t *testing.T) {
+		issue := &linearapi.Issue{
+			Identifier: "EFF-2",
+			BlockedBy:  nil,
+		}
+		cell := renderIdentifierCell(issue, theme, row)
+		if cell == nil {
+			t.Fatalf("renderIdentifierCell returned nil")
+		}
+		if cell.Color != secondaryColor {
+			t.Errorf("cell.Color = %v, want SecondaryText %v (no blockers)", cell.Color, secondaryColor)
+		}
+		if cell.Color == blockedColor {
+			t.Errorf("cell.Color should NOT be StatusBlocked when BlockedBy is empty")
+		}
+	})
+
+	t.Run("only terminal blockers → SecondaryText color", func(t *testing.T) {
+		issue := &linearapi.Issue{
+			Identifier: "EFF-3",
+			BlockedBy: []linearapi.IssueRelationRef{
+				{Identifier: "DONE-1", StateType: "completed"},
+			},
+		}
+		cell := renderIdentifierCell(issue, theme, row)
+		if cell == nil {
+			t.Fatalf("renderIdentifierCell returned nil")
+		}
+		if cell.Color != secondaryColor {
+			t.Errorf("cell.Color = %v, want SecondaryText %v (all blockers terminal)", cell.Color, secondaryColor)
+		}
+	})
+}
+
+// TestRenderIdentifierCell_TerminalBlockersNotColored is the invalidation test for ASM-005:
+// if someone changes the color gate from isBlocked() to len(BlockedBy) > 0, terminal
+// blockers would start coloring rows and this test fails. Covers T-INV-005.
+func TestRenderIdentifierCell_TerminalBlockersNotColored(t *testing.T) {
+	blockedColor := tcell.NewRGBColor(200, 80, 80)
+	secondaryColor := tcell.NewRGBColor(120, 120, 120)
+	theme := Theme{
+		SecondaryText: secondaryColor,
+		StatusBlocked: blockedColor,
+	}
+	issue := &linearapi.Issue{
+		Identifier: "EFF-9",
+		BlockedBy: []linearapi.IssueRelationRef{
+			{Identifier: "DONE-1", StateType: "completed"},
+		},
+	}
+	cell := renderIdentifierCell(issue, theme, IssueRow{Level: 0})
+	if cell == nil {
+		t.Fatalf("renderIdentifierCell returned nil")
+	}
+	if cell.Color == blockedColor {
+		t.Errorf("cell.Color = StatusBlocked, want SecondaryText — terminal-only blockers must not trigger the blocked color")
+	}
+	if cell.Color != secondaryColor {
+		t.Errorf("cell.Color = %v, want SecondaryText %v", cell.Color, secondaryColor)
+	}
+}
+
+// TestThemes_StatusBlockedSet verifies every theme variant declares a valid StatusBlocked
+// color, the spec-mandated RGB values, and that ColorBlindTheme uses a distinct hue
+// (not red) from the other variants. Covers AC-015, FR-010, FR-011 (T-010).
+func TestThemes_StatusBlockedSet(t *testing.T) {
+	wantLinear := tcell.NewRGBColor(255, 140, 0)
+	wantHighContrast := tcell.NewRGBColor(255, 140, 0)
+	wantColorBlind := tcell.NewRGBColor(204, 121, 167)
+
+	if !LinearTheme.StatusBlocked.Valid() {
+		t.Errorf("LinearTheme.StatusBlocked is not a valid tcell.Color")
+	}
+	if LinearTheme.StatusBlocked != wantLinear {
+		t.Errorf("LinearTheme.StatusBlocked = %v, want %v (bright orange, distinct from Canceled red)", LinearTheme.StatusBlocked, wantLinear)
+	}
+
+	if !HighContrastTheme.StatusBlocked.Valid() {
+		t.Errorf("HighContrastTheme.StatusBlocked is not a valid tcell.Color")
+	}
+	if HighContrastTheme.StatusBlocked != wantHighContrast {
+		t.Errorf("HighContrastTheme.StatusBlocked = %v, want %v (bright orange, distinct from Canceled red)", HighContrastTheme.StatusBlocked, wantHighContrast)
+	}
+
+	if !ColorBlindTheme.StatusBlocked.Valid() {
+		t.Errorf("ColorBlindTheme.StatusBlocked is not a valid tcell.Color")
+	}
+	if ColorBlindTheme.StatusBlocked != wantColorBlind {
+		t.Errorf("ColorBlindTheme.StatusBlocked = %v, want %v (#CC79A7 — Okabe-Ito reddish-purple)", ColorBlindTheme.StatusBlocked, wantColorBlind)
+	}
+
+	// AC-015: ColorBlindTheme must not reuse the red of the other two variants.
+	if ColorBlindTheme.StatusBlocked == LinearTheme.StatusBlocked {
+		t.Errorf("ColorBlindTheme.StatusBlocked reuses LinearTheme.StatusBlocked — must be a distinct hue (not red)")
+	}
+	if ColorBlindTheme.StatusBlocked == HighContrastTheme.StatusBlocked {
+		t.Errorf("ColorBlindTheme.StatusBlocked reuses HighContrastTheme.StatusBlocked — must be a distinct hue (not red)")
 	}
 }
