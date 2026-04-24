@@ -174,6 +174,15 @@ type IssueChildRef struct {
 	StateID    string
 }
 
+// IssueRelationRef represents a lightweight reference to an issue relation.
+type IssueRelationRef struct {
+	ID         string
+	Identifier string
+	Title      string
+	State      string
+	StateType  string
+}
+
 // Comment represents a comment on a Linear issue.
 type Comment struct {
 	ID        string
@@ -208,7 +217,9 @@ type Issue struct {
 	Labels         []IssueLabel
 	Parent         *IssueRef       // Parent issue reference (nil if top-level)
 	Children       []IssueChildRef // Child/sub-issue references
-	Comments       []Comment       // Comments on this issue
+	BlockedBy      []IssueRelationRef
+	Blocks         []IssueRelationRef
+	Comments       []Comment // Comments on this issue
 }
 
 // IssueFetchProgress describes progress for a paginated issue fetch.
@@ -703,6 +714,34 @@ func (c *Client) searchIssuesPage(ctx context.Context, params FetchIssuesParams,
 						}
 					}
 				}
+				Relations struct {
+					Nodes []struct {
+						Type         graphql.String
+						RelatedIssue struct {
+							ID         graphql.String
+							Identifier graphql.String
+							Title      graphql.String
+							State      struct {
+								Name graphql.String
+								Type graphql.String
+							}
+						}
+					}
+				}
+				InverseRelations struct {
+					Nodes []struct {
+						Type  graphql.String
+						Issue struct {
+							ID         graphql.String
+							Identifier graphql.String
+							Title      graphql.String
+							State      struct {
+								Name graphql.String
+								Type graphql.String
+							}
+						}
+					}
+				}
 			}
 			PageInfo struct {
 				HasNextPage graphql.Boolean
@@ -866,6 +905,34 @@ func (c *Client) fetchIssuesWithFilterPage(ctx context.Context, params FetchIssu
 						}
 					}
 				}
+				Relations struct {
+					Nodes []struct {
+						Type         graphql.String
+						RelatedIssue struct {
+							ID         graphql.String
+							Identifier graphql.String
+							Title      graphql.String
+							State      struct {
+								Name graphql.String
+								Type graphql.String
+							}
+						}
+					}
+				}
+				InverseRelations struct {
+					Nodes []struct {
+						Type  graphql.String
+						Issue struct {
+							ID         graphql.String
+							Identifier graphql.String
+							Title      graphql.String
+							State      struct {
+								Name graphql.String
+								Type graphql.String
+							}
+						}
+					}
+				}
 			}
 			PageInfo struct {
 				HasNextPage graphql.Boolean
@@ -905,6 +972,28 @@ func (c *Client) fetchIssuesWithFilterPage(ctx context.Context, params FetchIssu
 		HasNext:   hasNext,
 		EndCursor: endCursor,
 	}, nil
+}
+
+func parseRelationRefs(nodesField reflect.Value, innerField string) []IssueRelationRef {
+	refs := make([]IssueRelationRef, 0, nodesField.Len())
+	for i := 0; i < nodesField.Len(); i++ {
+		rel := nodesField.Index(i)
+		if rel.FieldByName("Type").String() != "blocks" {
+			continue
+		}
+
+		issue := rel.FieldByName(innerField)
+		state := issue.FieldByName("State")
+		refs = append(refs, IssueRelationRef{
+			ID:         issue.FieldByName("ID").String(),
+			Identifier: issue.FieldByName("Identifier").String(),
+			Title:      issue.FieldByName("Title").String(),
+			State:      state.FieldByName("Name").String(),
+			StateType:  state.FieldByName("Type").String(),
+		})
+	}
+
+	return refs
 }
 
 // parseIssueNode converts a GraphQL issue node to an Issue struct.
@@ -1006,6 +1095,9 @@ func (c *Client) parseIssueNode(node interface{}) Issue {
 		})
 	}
 
+	blocks := parseRelationRefs(v.FieldByName("Relations").FieldByName("Nodes"), "RelatedIssue")
+	blockedBy := parseRelationRefs(v.FieldByName("InverseRelations").FieldByName("Nodes"), "Issue")
+
 	return Issue{
 		ID:          id,
 		Identifier:  identifier,
@@ -1028,6 +1120,8 @@ func (c *Client) parseIssueNode(node interface{}) Issue {
 		Labels:      labels,
 		Parent:      parent,
 		Children:    children,
+		BlockedBy:   blockedBy,
+		Blocks:      blocks,
 	}
 }
 
@@ -1101,6 +1195,34 @@ func (c *Client) FetchIssueByID(ctx context.Context, id string) (Issue, error) {
 					State      struct {
 						ID   graphql.String
 						Name graphql.String
+					}
+				}
+			}
+			Relations struct {
+				Nodes []struct {
+					Type         graphql.String
+					RelatedIssue struct {
+						ID         graphql.String
+						Identifier graphql.String
+						Title      graphql.String
+						State      struct {
+							Name graphql.String
+							Type graphql.String
+						}
+					}
+				}
+			}
+			InverseRelations struct {
+				Nodes []struct {
+					Type  graphql.String
+					Issue struct {
+						ID         graphql.String
+						Identifier graphql.String
+						Title      graphql.String
+						State      struct {
+							Name graphql.String
+							Type graphql.String
+						}
 					}
 				}
 			}
@@ -1221,6 +1343,10 @@ func (c *Client) FetchIssueByID(ctx context.Context, id string) (Issue, error) {
 		})
 	}
 
+	issueValue := reflect.ValueOf(query.Issue)
+	blocks := parseRelationRefs(issueValue.FieldByName("Relations").FieldByName("Nodes"), "RelatedIssue")
+	blockedBy := parseRelationRefs(issueValue.FieldByName("InverseRelations").FieldByName("Nodes"), "Issue")
+
 	return Issue{
 		ID:          string(query.Issue.ID),
 		Identifier:  string(query.Issue.Identifier),
@@ -1243,6 +1369,8 @@ func (c *Client) FetchIssueByID(ctx context.Context, id string) (Issue, error) {
 		Labels:      labels,
 		Parent:      parent,
 		Children:    children,
+		BlockedBy:   blockedBy,
+		Blocks:      blocks,
 		Comments:    comments,
 	}, nil
 }

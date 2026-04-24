@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+	"github.com/roeyazroel/linear-tui/internal/linearapi"
 )
 
 // markdownRenderer is a shared glamour renderer for markdown content.
@@ -101,32 +102,12 @@ func (a *App) setDetailsCommentsVisibility(showComments bool) {
 	}
 }
 
-// updateDetailsView updates the details view with the selected issue.
-func (a *App) updateDetailsView() {
-	a.issuesMu.RLock()
-	selectedIssue := a.selectedIssue
-	a.issuesMu.RUnlock()
-	hasComments := selectedIssue != nil && len(selectedIssue.Comments) > 0
-	a.setDetailsCommentsVisibility(hasComments)
-	if selectedIssue == nil {
-		a.detailsDescriptionView.SetText(fmt.Sprintf("%sNo issue selected. Select an issue from the list to view details.[-]", a.themeTags.SecondaryText))
-		a.detailsCommentsView.SetText("")
-		if a.focusedPane == FocusDetails && !a.detailsCommentsVisible {
-			a.updateFocus()
-		}
-		return
-	}
+func buildDetailsHeader(issue *linearapi.Issue, tags ThemeTags, sectionGap int) []string {
+	keyColor := tags.SecondaryText
+	valColor := tags.Foreground
+	accentColor := tags.Accent
+	dividerColor := tags.Border
 
-	issue := selectedIssue
-
-	// Helper to colorize keys
-	keyColor := a.themeTags.SecondaryText
-	valColor := a.themeTags.Foreground
-	accentColor := a.themeTags.Accent
-	dividerColor := a.themeTags.Border
-	sectionGap := a.density.DetailsSectionGap
-
-	// ===== Update Description/Metadata View =====
 	var headerLines []string
 
 	// Issue header info with styling
@@ -176,7 +157,6 @@ func (a *App) updateDetailsView() {
 		}
 		headerLines = append(headerLines, fmt.Sprintf("%sSub-issues:[-] %s%d items[-]", keyColor, valColor, len(issue.Children)))
 		for _, child := range issue.Children {
-			// Show child identifier, state, and title
 			childLine := fmt.Sprintf("  %s└─[-] %s%s[-] %s[%s][-] %s%s[-]",
 				keyColor,
 				accentColor, child.Identifier,
@@ -186,6 +166,13 @@ func (a *App) updateDetailsView() {
 		}
 	}
 
+	if len(issue.BlockedBy) > 0 {
+		headerLines = appendRelationSection(headerLines, "Blocked by:", issue.BlockedBy, keyColor, valColor, accentColor, sectionGap)
+	}
+	if len(issue.Blocks) > 0 {
+		headerLines = appendRelationSection(headerLines, "Blocks:", issue.Blocks, keyColor, valColor, accentColor, sectionGap)
+	}
+
 	for i := 0; i < sectionGap; i++ {
 		headerLines = append(headerLines, "")
 	}
@@ -193,6 +180,60 @@ func (a *App) updateDetailsView() {
 	for i := 0; i < sectionGap; i++ {
 		headerLines = append(headerLines, "")
 	}
+
+	return headerLines
+}
+
+func appendRelationSection(
+	headerLines []string,
+	label string,
+	relations []linearapi.IssueRelationRef,
+	keyColor string,
+	valColor string,
+	accentColor string,
+	sectionGap int,
+) []string {
+	for i := 0; i < sectionGap; i++ {
+		headerLines = append(headerLines, "")
+	}
+	padding := strings.Repeat(" ", 12-len(label))
+	headerLines = append(headerLines, fmt.Sprintf("%s%s[-]%s%s%d items[-]", keyColor, label, padding, valColor, len(relations)))
+	for _, relation := range relations {
+		relationLine := fmt.Sprintf("  %s└─[-] %s%s[-] %s[%s][-] %s%s[-]",
+			keyColor,
+			accentColor, relation.Identifier,
+			keyColor, relation.State,
+			valColor, relation.Title)
+		headerLines = append(headerLines, relationLine)
+	}
+
+	return headerLines
+}
+
+// updateDetailsView updates the details view with the selected issue.
+func (a *App) updateDetailsView() {
+	a.issuesMu.RLock()
+	selectedIssue := a.selectedIssue
+	a.issuesMu.RUnlock()
+	hasComments := selectedIssue != nil && len(selectedIssue.Comments) > 0
+	a.setDetailsCommentsVisibility(hasComments)
+	if selectedIssue == nil {
+		a.detailsDescriptionView.SetText(fmt.Sprintf("%sNo issue selected. Select an issue from the list to view details.[-]", a.themeTags.SecondaryText))
+		a.detailsCommentsView.SetText("")
+		if a.focusedPane == FocusDetails && !a.detailsCommentsVisible {
+			a.updateFocus()
+		}
+		return
+	}
+
+	issue := selectedIssue
+
+	keyColor := a.themeTags.SecondaryText
+	accentColor := a.themeTags.Accent
+	dividerColor := a.themeTags.Border
+
+	// ===== Update Description/Metadata View =====
+	headerLines := buildDetailsHeader(issue, a.themeTags, a.density.DetailsSectionGap)
 
 	// Set header first, then append description via ANSIWriter
 	a.detailsDescriptionView.Clear()
