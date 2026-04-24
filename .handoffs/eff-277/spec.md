@@ -10,7 +10,7 @@
 - Spec version: 1
 - Tier: Full
 - Baseline SHA: 3948ec3955eb1698916ba0c45fe9944aa3c2bb75
-- Implementation SHA: pending
+- Implementation SHA: d433d231b37aea526f17e3630996aedc0a4034b4
 - Status: LOCKED
 - Spec hash: f9b5487d96f396547d4ecbe3414898e03329cc0a81d3f1a776100b224814f563
 
