@@ -321,22 +321,22 @@ func TestRenderIdentifierCell_TerminalBlockersNotColored(t *testing.T) {
 // color, the spec-mandated RGB values, and that ColorBlindTheme uses a distinct hue
 // (not red) from the other variants. Covers AC-015, FR-010, FR-011 (T-010).
 func TestThemes_StatusBlockedSet(t *testing.T) {
-	wantLinear := tcell.NewRGBColor(200, 80, 80)
-	wantHighContrast := tcell.NewRGBColor(255, 60, 60)
+	wantLinear := tcell.NewRGBColor(255, 140, 0)
+	wantHighContrast := tcell.NewRGBColor(255, 140, 0)
 	wantColorBlind := tcell.NewRGBColor(204, 121, 167)
 
 	if !LinearTheme.StatusBlocked.Valid() {
 		t.Errorf("LinearTheme.StatusBlocked is not a valid tcell.Color")
 	}
 	if LinearTheme.StatusBlocked != wantLinear {
-		t.Errorf("LinearTheme.StatusBlocked = %v, want %v (#C85050)", LinearTheme.StatusBlocked, wantLinear)
+		t.Errorf("LinearTheme.StatusBlocked = %v, want %v (bright orange, distinct from Canceled red)", LinearTheme.StatusBlocked, wantLinear)
 	}
 
 	if !HighContrastTheme.StatusBlocked.Valid() {
 		t.Errorf("HighContrastTheme.StatusBlocked is not a valid tcell.Color")
 	}
 	if HighContrastTheme.StatusBlocked != wantHighContrast {
-		t.Errorf("HighContrastTheme.StatusBlocked = %v, want %v (#FF3C3C)", HighContrastTheme.StatusBlocked, wantHighContrast)
+		t.Errorf("HighContrastTheme.StatusBlocked = %v, want %v (bright orange, distinct from Canceled red)", HighContrastTheme.StatusBlocked, wantHighContrast)
 	}
 
 	if !ColorBlindTheme.StatusBlocked.Valid() {

@@ -47,7 +47,7 @@ var LinearTheme = Theme{
 	StatusInProgress: tcell.NewRGBColor(242, 201, 76),  // Yellow
 	StatusDone:       tcell.NewRGBColor(94, 106, 210),  // Purple/Blue (Linear uses purple for done often, or green)
 	StatusCanceled:   tcell.NewRGBColor(255, 80, 80),   // Red
-	StatusBlocked:    tcell.NewRGBColor(200, 80, 80),   // #C85050
+	StatusBlocked:    tcell.NewRGBColor(255, 140, 0),   // Bright orange (distinct from Canceled red)
 }
 
 // HighContrastTheme is a high contrast theme for improved legibility.
@@ -68,7 +68,7 @@ var HighContrastTheme = Theme{
 	StatusInProgress: tcell.NewRGBColor(255, 255, 0),   // Yellow
 	StatusDone:       tcell.NewRGBColor(0, 255, 0),     // Green
 	StatusCanceled:   tcell.NewRGBColor(255, 0, 0),     // Red
-	StatusBlocked:    tcell.NewRGBColor(255, 60, 60),   // #FF3C3C
+	StatusBlocked:    tcell.NewRGBColor(255, 140, 0),   // Bright orange (distinct from Canceled red)
 }
 
 // ColorBlindTheme is a color-blind friendly palette.
