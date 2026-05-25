@@ -142,7 +142,7 @@ func NewApp(api *linearapi.Client, cfg config.Config, templates []config.AgentPr
 		pages:                tview.NewPages(),
 		focusedPane:          FocusIssues,
 		sortField:            SortByProjectStatus,
-		hiddenStateTypes:     map[string]bool{"completed": true, "canceled": true},
+		hiddenStateTypes:     map[string]bool{"completed": true, "canceled": true, "duplicate": true},
 		expandedState:        make(map[string]bool),
 		idToIssue:            make(map[string]*linearapi.Issue),
 		agentPromptTemplates: templates,
@@ -416,7 +416,7 @@ func (a *App) resetCachedState() {
 	a.teamUsers = nil
 	a.workflowStates = nil
 	a.expandedState = make(map[string]bool)
-	a.hiddenStateTypes = map[string]bool{"completed": true, "canceled": true}
+	a.hiddenStateTypes = map[string]bool{"completed": true, "canceled": true, "duplicate": true}
 
 	a.isLoading = false
 	a.pendingRefresh = false
@@ -1576,10 +1576,11 @@ var stateTypeLabels = map[string]string{
 	"backlog":   "Backlog",
 	"completed": "Done",
 	"canceled":  "Canceled",
+	"duplicate": "Duplicate",
 }
 
 // stateTypeOrder is the display order for state types in the filter picker.
-var stateTypePickerOrder = []string{"started", "unstarted", "triage", "backlog", "completed", "canceled"}
+var stateTypePickerOrder = []string{"started", "unstarted", "triage", "backlog", "completed", "canceled", "duplicate"}
 
 // buildStateTypePickerItems builds the picker items reflecting current filter state.
 func (a *App) buildStateTypePickerItems() []PickerItem {
