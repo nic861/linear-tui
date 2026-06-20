@@ -211,6 +211,8 @@ type Issue struct {
 	ProjectID      string
 	ProjectName    string
 	CycleName      string // Current cycle name (e.g. "Cycle 3")
+	MilestoneName  string // Project milestone name (e.g. "v0.9 — Live Board"); "" if none
+	MilestoneID    string // Project milestone ID; "" if none
 	InitiativeName string // First initiative name (via project)
 	URL            string
 	Archived       bool
@@ -689,6 +691,10 @@ func (c *Client) searchIssuesPage(ctx context.Context, params FetchIssuesParams,
 					Name   graphql.String
 					Number graphql.Float
 				}
+				ProjectMilestone *struct {
+					ID   graphql.String
+					Name graphql.String
+				}
 				Labels struct {
 					Nodes []struct {
 						ID    graphql.String
@@ -880,6 +886,10 @@ func (c *Client) fetchIssuesWithFilterPage(ctx context.Context, params FetchIssu
 					Name   graphql.String
 					Number graphql.Float
 				}
+				ProjectMilestone *struct {
+					ID   graphql.String
+					Name graphql.String
+				}
 				Labels struct {
 					Nodes []struct {
 						ID    graphql.String
@@ -1053,6 +1063,14 @@ func (c *Client) parseIssueNode(node interface{}) Issue {
 		}
 	}
 
+	milestoneName := ""
+	milestoneID := ""
+	milestoneField := v.FieldByName("ProjectMilestone")
+	if milestoneField.IsValid() && !milestoneField.IsNil() {
+		milestoneName = milestoneField.Elem().FieldByName("Name").String()
+		milestoneID = milestoneField.Elem().FieldByName("ID").String()
+	}
+
 	url := v.FieldByName("URL").String()
 
 	archivedField := v.FieldByName("ArchivedAt")
@@ -1099,29 +1117,31 @@ func (c *Client) parseIssueNode(node interface{}) Issue {
 	blockedBy := parseRelationRefs(v.FieldByName("InverseRelations").FieldByName("Nodes"), "Issue")
 
 	return Issue{
-		ID:          id,
-		Identifier:  identifier,
-		Title:       title,
-		State:       stateName,
-		StateID:     stateID,
-		StateType:   stateType,
-		Assignee:    assignee,
-		AssigneeID:  assigneeID,
-		Priority:    priority,
-		UpdatedAt:   updatedAt,
-		CreatedAt:   createdAt,
-		Description: description,
-		TeamID:      teamID,
-		ProjectID:   projectID,
-		ProjectName: projectName,
-		CycleName:   cycleName,
-		URL:         url,
-		Archived:    archived,
-		Labels:      labels,
-		Parent:      parent,
-		Children:    children,
-		BlockedBy:   blockedBy,
-		Blocks:      blocks,
+		ID:            id,
+		Identifier:    identifier,
+		Title:         title,
+		State:         stateName,
+		StateID:       stateID,
+		StateType:     stateType,
+		Assignee:      assignee,
+		AssigneeID:    assigneeID,
+		Priority:      priority,
+		UpdatedAt:     updatedAt,
+		CreatedAt:     createdAt,
+		Description:   description,
+		TeamID:        teamID,
+		ProjectID:     projectID,
+		ProjectName:   projectName,
+		CycleName:     cycleName,
+		MilestoneName: milestoneName,
+		MilestoneID:   milestoneID,
+		URL:           url,
+		Archived:      archived,
+		Labels:        labels,
+		Parent:        parent,
+		Children:      children,
+		BlockedBy:     blockedBy,
+		Blocks:        blocks,
 	}
 }
 
@@ -1172,6 +1192,10 @@ func (c *Client) FetchIssueByID(ctx context.Context, id string) (Issue, error) {
 			Cycle *struct {
 				Name   graphql.String
 				Number graphql.Float
+			}
+			ProjectMilestone *struct {
+				ID   graphql.String
+				Name graphql.String
 			}
 			Labels struct {
 				Nodes []struct {
@@ -1288,6 +1312,13 @@ func (c *Client) FetchIssueByID(ctx context.Context, id string) (Issue, error) {
 		}
 	}
 
+	milestoneName := ""
+	milestoneID := ""
+	if query.Issue.ProjectMilestone != nil {
+		milestoneName = string(query.Issue.ProjectMilestone.Name)
+		milestoneID = string(query.Issue.ProjectMilestone.ID)
+	}
+
 	archived := query.Issue.ArchivedAt != nil
 
 	// Parse labels
@@ -1348,30 +1379,32 @@ func (c *Client) FetchIssueByID(ctx context.Context, id string) (Issue, error) {
 	blockedBy := parseRelationRefs(issueValue.FieldByName("InverseRelations").FieldByName("Nodes"), "Issue")
 
 	return Issue{
-		ID:          string(query.Issue.ID),
-		Identifier:  string(query.Issue.Identifier),
-		Title:       string(query.Issue.Title),
-		State:       string(query.Issue.State.Name),
-		StateID:     string(query.Issue.State.ID),
-		StateType:   string(query.Issue.State.Type),
-		Assignee:    assignee,
-		AssigneeID:  assigneeID,
-		Priority:    int(query.Issue.Priority),
-		UpdatedAt:   updatedAt,
-		CreatedAt:   createdAt,
-		Description: description,
-		TeamID:      string(query.Issue.Team.ID),
-		ProjectID:   projectID,
-		ProjectName: projectName,
-		CycleName:   cycleName,
-		URL:         string(query.Issue.URL),
-		Archived:    archived,
-		Labels:      labels,
-		Parent:      parent,
-		Children:    children,
-		BlockedBy:   blockedBy,
-		Blocks:      blocks,
-		Comments:    comments,
+		ID:            string(query.Issue.ID),
+		Identifier:    string(query.Issue.Identifier),
+		Title:         string(query.Issue.Title),
+		State:         string(query.Issue.State.Name),
+		StateID:       string(query.Issue.State.ID),
+		StateType:     string(query.Issue.State.Type),
+		Assignee:      assignee,
+		AssigneeID:    assigneeID,
+		Priority:      int(query.Issue.Priority),
+		UpdatedAt:     updatedAt,
+		CreatedAt:     createdAt,
+		Description:   description,
+		TeamID:        string(query.Issue.Team.ID),
+		ProjectID:     projectID,
+		ProjectName:   projectName,
+		CycleName:     cycleName,
+		MilestoneName: milestoneName,
+		MilestoneID:   milestoneID,
+		URL:           string(query.Issue.URL),
+		Archived:      archived,
+		Labels:        labels,
+		Parent:        parent,
+		Children:      children,
+		BlockedBy:     blockedBy,
+		Blocks:        blocks,
+		Comments:      comments,
 	}, nil
 }
 
