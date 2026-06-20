@@ -944,8 +944,14 @@ func (a *App) refreshIssuesWithFocusChange(allowFocusChange bool, issueID ...str
 		}
 
 		// Build excluded state types list from hiddenStateTypes map.
+		// In the grouped (milestone) view we still COUNT completed issues toward
+		// milestone progress, so we must fetch them even when they're hidden — their
+		// rows are filtered out at build time, but the rollup needs them.
 		var excludeTypes []string
 		for st := range a.hiddenStateTypes {
+			if a.grouped() && st == "completed" {
+				continue
+			}
 			excludeTypes = append(excludeTypes, st)
 		}
 
@@ -1077,7 +1083,7 @@ func (a *App) grouped() bool {
 // headers + Seq) when in milestone sort, otherwise the sub-issue hierarchy tree.
 func (a *App) buildRows(issues []linearapi.Issue) ([]IssueRow, map[string]*linearapi.Issue) {
 	if a.grouped() {
-		return BuildGroupedRows(issues, a.collapsedGroups)
+		return BuildGroupedRows(issues, a.collapsedGroups, a.hiddenStateTypes)
 	}
 	return BuildIssueRows(issues, a.expandedState)
 }

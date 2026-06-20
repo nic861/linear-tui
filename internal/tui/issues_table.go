@@ -16,20 +16,22 @@ const (
 	IconChildPrefix = "└─"
 )
 
-// formatPriority formats a priority value into a display string with icon and label.
-// Linear priority: 0 = No priority, 1 = Urgent, 2 = High, 3 = Normal, 4 = Low.
+// formatPriority formats a priority value into a display string with icon and color.
+// Linear priority: 0 = No priority, 1 = Urgent, 2 = High, 3 = Medium, 4 = Low.
+// Each level gets a DISTINCT icon (⚡ is reserved for Urgent only) and color
+// (Urgent=red, High=orange, Medium=yellow, Low=green).
 func formatPriority(priority int, theme Theme) (string, tcell.Color) {
 	switch priority {
 	case 1:
-		return Icons.Priority + " Urgent", theme.StatusCanceled // Red for urgent
+		return "⚡ Urgent", theme.PriorityUrgent
 	case 2:
-		return Icons.Priority + " High", theme.StatusInProgress // Yellow for high
+		return "↑ High", theme.PriorityHigh
 	case 3:
-		return Icons.Priority + " Normal", theme.Foreground // Default for normal
+		return "→ Medium", theme.PriorityMedium
 	case 4:
-		return Icons.Priority + " Low", theme.SecondaryText // Gray for low
+		return "↓ Low", theme.PriorityLow
 	default:
-		return "-", theme.SecondaryText // No priority
+		return "· None", theme.SecondaryText
 	}
 }
 
@@ -418,7 +420,19 @@ func renderGroupHeaderRow(table *tview.Table, row int, r IssueRow, theme Theme) 
 		urgent = fmt.Sprintf("⚡%d", r.OpenUrgent)
 	}
 
-	breakdown := fmt.Sprintf("U%d H%d M%d L%d", r.OpenUrgent, r.OpenHigh, r.OpenMed, r.OpenLow)
+	// Color-tagged priority breakdown (table cells render tview color tags):
+	// Urgent=red, High=orange, Medium=yellow, Low=green. Milestone lines are
+	// indented so the breakdown reads as summarized under the project.
+	indent := ""
+	if r.Kind == RowMilestone {
+		indent = "  "
+	}
+	breakdown := fmt.Sprintf("%s%sU%d[-] %sH%d[-] %sM%d[-] %sL%d[-]",
+		indent,
+		colorTag(theme.PriorityUrgent), r.OpenUrgent,
+		colorTag(theme.PriorityHigh), r.OpenHigh,
+		colorTag(theme.PriorityMedium), r.OpenMed,
+		colorTag(theme.PriorityLow), r.OpenLow)
 
 	// Per-column foreground (band background is uniform).
 	set := func(col int, text string, fg tcell.Color) {
@@ -431,7 +445,7 @@ func renderGroupHeaderRow(table *tview.Table, row int, r IssueRow, theme Theme) 
 	set(gID, progress, nameFg)
 	set(gCycle, cycleFlag, theme.StatusInProgress) // bright/yellow = active now
 	set(gState, stateCounts, theme.SecondaryText)
-	set(gPriority, urgent, theme.StatusCanceled) // red alarm
+	set(gPriority, urgent, theme.PriorityUrgent) // red alarm (⚡ = urgent everywhere)
 	set(gTitle, breakdown, theme.SecondaryText)
 }
 

@@ -66,7 +66,7 @@ func TestBuildGroupedRows_HeadersAndSeq(t *testing.T) {
 		// A flat project: no milestone, no deps.
 		{ID: "100", Identifier: "EFF-100", ProjectName: "Infra", StateType: "backlog"},
 	}
-	rows, idx := BuildGroupedRows(issues, map[string]bool{})
+	rows, idx := BuildGroupedRows(issues, map[string]bool{}, map[string]bool{})
 	if len(idx) != 4 {
 		t.Fatalf("idToIssue size = %d, want 4", len(idx))
 	}
@@ -124,12 +124,41 @@ func TestRollupOf_BreakdownAndCycle(t *testing.T) {
 	}
 }
 
+// Completed issues are counted in milestone progress even when their rows are hidden.
+func TestBuildGroupedRows_HiddenDoneStillCounts(t *testing.T) {
+	issues := []linearapi.Issue{
+		{ID: "1", Identifier: "EFF-1", ProjectName: "P", MilestoneName: "v1", StateType: "completed"},
+		{ID: "2", Identifier: "EFF-2", ProjectName: "P", MilestoneName: "v1", StateType: "completed"},
+		{ID: "3", Identifier: "EFF-3", ProjectName: "P", MilestoneName: "v1", StateType: "backlog"},
+	}
+	hidden := map[string]bool{"completed": true}
+	rows, _ := BuildGroupedRows(issues, map[string]bool{}, hidden)
+
+	var ms IssueRow
+	issueRows := 0
+	for _, r := range rows {
+		if r.Kind == RowMilestone {
+			ms = r
+		}
+		if r.Kind == RowIssue {
+			issueRows++
+		}
+	}
+	// Progress reflects all 3 (2 done) even though only the 1 open row shows.
+	if ms.GroupCount != 3 || ms.GroupDone != 2 {
+		t.Errorf("milestone rollup = %d/%d, want 2/3", ms.GroupDone, ms.GroupCount)
+	}
+	if issueRows != 1 {
+		t.Errorf("visible issue rows = %d, want 1 (done hidden)", issueRows)
+	}
+}
+
 func TestBuildGroupedRows_CollapseHidesChildren(t *testing.T) {
 	issues := []linearapi.Issue{
 		{ID: "390", Identifier: "EFF-390", ProjectName: "Dory Q&A", MilestoneName: "v0.9", StateType: "completed"},
 	}
 	collapsed := map[string]bool{projectGroupKey("Dory Q&A"): true}
-	rows, _ := BuildGroupedRows(issues, collapsed)
+	rows, _ := BuildGroupedRows(issues, collapsed, map[string]bool{})
 	for _, r := range rows {
 		if r.Kind == RowIssue || r.Kind == RowMilestone {
 			t.Errorf("collapsed project still emitted %+v", r)

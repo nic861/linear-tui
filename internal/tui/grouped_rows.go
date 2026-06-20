@@ -139,7 +139,7 @@ func rollupOf(members []*linearapi.Issue) groupRollup {
 //
 // Issues are assumed pre-sorted by project -> milestone (see SortByMilestone), but
 // grouping is order-robust: projects and milestones appear in first-seen order.
-func BuildGroupedRows(issues []linearapi.Issue, collapsedGroups map[string]bool) ([]IssueRow, map[string]*linearapi.Issue) {
+func BuildGroupedRows(issues []linearapi.Issue, collapsedGroups, hiddenStateTypes map[string]bool) ([]IssueRow, map[string]*linearapi.Issue) {
 	idToIssue := make(map[string]*linearapi.Issue, len(issues))
 	for i := range issues {
 		idToIssue[issues[i].ID] = &issues[i]
@@ -275,6 +275,11 @@ func BuildGroupedRows(issues []linearapi.Issue, collapsedGroups map[string]bool)
 			}
 
 			for _, is := range ordered {
+				// Hidden state types (e.g. completed) are counted in the rollup above
+				// but their rows are not displayed.
+				if hiddenStateTypes[is.StateType] {
+					continue
+				}
 				r := IssueRow{
 					Kind:    RowIssue,
 					IssueID: is.ID,
