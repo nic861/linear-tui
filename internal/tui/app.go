@@ -27,6 +27,7 @@ const (
 	SortByProjectStatus  SortField = "projectStatus"  // project → status → priority
 	SortByStatusPriority SortField = "statusPriority" // status → priority
 	SortByCycle          SortField = "cycle"          // cycle → status → priority
+	SortByMilestone      SortField = "milestone"      // project → milestone → status → priority
 )
 
 // App is the main application controller that manages all UI components.
@@ -935,7 +936,7 @@ func (a *App) refreshIssuesWithFocusChange(allowFocusChange bool, issueID ...str
 		// Custom sort modes use client-side sorting, fetch with updatedAt from API.
 		apiOrderBy := string(a.sortField)
 		switch a.sortField {
-		case SortByProjectStatus, SortByStatusPriority, SortByCycle:
+		case SortByProjectStatus, SortByStatusPriority, SortByCycle, SortByMilestone:
 			apiOrderBy = string(SortByUpdatedAt)
 		}
 
@@ -1221,6 +1222,39 @@ func sortIssues(issues []linearapi.Issue, field SortField) {
 			// 3. Priority
 			return priorityOrder(a.Priority) < priorityOrder(b.Priority)
 		})
+	case SortByMilestone:
+		sort.SliceStable(issues, func(i, j int) bool {
+			a, b := issues[i], issues[j]
+			// 1. Project name (empty last)
+			ap, bp := a.ProjectName, b.ProjectName
+			if ap == "" {
+				ap = "\xff"
+			}
+			if bp == "" {
+				bp = "\xff"
+			}
+			if ap != bp {
+				return strings.ToLower(ap) < strings.ToLower(bp)
+			}
+			// 2. Milestone name (no-milestone last, within the project)
+			am, bm := a.MilestoneName, b.MilestoneName
+			if am == "" {
+				am = "\xff"
+			}
+			if bm == "" {
+				bm = "\xff"
+			}
+			if am != bm {
+				return strings.ToLower(am) < strings.ToLower(bm)
+			}
+			// 3. State type order
+			sa, sb := stateTypeOrder(a.StateType), stateTypeOrder(b.StateType)
+			if sa != sb {
+				return sa < sb
+			}
+			// 4. Priority
+			return priorityOrder(a.Priority) < priorityOrder(b.Priority)
+		})
 	}
 	// For updatedAt and createdAt, the API handles sorting.
 }
@@ -1346,6 +1380,8 @@ func (a *App) updateStatusBar() {
 		sortLabel = "priority"
 	case SortByCycle:
 		sortLabel = "cycle"
+	case SortByMilestone:
+		sortLabel = "milestone"
 	}
 	sortText := fmt.Sprintf("%s↕ %s[-]", a.themeTags.SecondaryText, sortLabel)
 

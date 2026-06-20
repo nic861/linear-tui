@@ -128,6 +128,16 @@ func buildDetailsHeader(issue *linearapi.Issue, tags ThemeTags, sectionGap int) 
 
 	headerLines = append(headerLines, fmt.Sprintf("%sPriority:[-]   %s%d[-]", keyColor, valColor, issue.Priority))
 
+	// Project
+	if issue.ProjectName != "" {
+		headerLines = append(headerLines, fmt.Sprintf("%sProject:[-]    %s%s[-]", keyColor, valColor, issue.ProjectName))
+	}
+
+	// Milestone
+	if issue.MilestoneName != "" {
+		headerLines = append(headerLines, fmt.Sprintf("%sMilestone:[-]  %s%s[-]", keyColor, accentColor, issue.MilestoneName))
+	}
+
 	// Cycle
 	if issue.CycleName != "" {
 		headerLines = append(headerLines, fmt.Sprintf("%sCycle:[-]      %s%s[-]", keyColor, valColor, issue.CycleName))

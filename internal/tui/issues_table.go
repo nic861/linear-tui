@@ -151,7 +151,12 @@ func (a *App) buildIssuesTable(title string) *tview.Table {
 		SetAlign(tview.AlignLeft).
 		SetSelectable(false).
 		SetExpansion(2))
-	table.SetCell(0, 5, tview.NewTableCell("Title").
+	table.SetCell(0, 5, tview.NewTableCell("Milestone").
+		SetStyle(headerStyle).
+		SetAlign(tview.AlignLeft).
+		SetSelectable(false).
+		SetExpansion(2))
+	table.SetCell(0, 6, tview.NewTableCell("Title").
 		SetStyle(headerStyle).
 		SetAlign(tview.AlignLeft).
 		SetSelectable(false).
@@ -333,7 +338,12 @@ func renderIssuesTableModel(table *tview.Table, rows []IssueRow, idToIssue map[s
 		SetAlign(tview.AlignLeft).
 		SetSelectable(false).
 		SetExpansion(2))
-	table.SetCell(0, 5, tview.NewTableCell("Title").
+	table.SetCell(0, 5, tview.NewTableCell("Milestone").
+		SetStyle(headerStyle).
+		SetAlign(tview.AlignLeft).
+		SetSelectable(false).
+		SetExpansion(2))
+	table.SetCell(0, 6, tview.NewTableCell("Title").
 		SetStyle(headerStyle).
 		SetAlign(tview.AlignLeft).
 		SetSelectable(false).
@@ -414,9 +424,23 @@ func renderIssuesTableModel(table *tview.Table, rows []IssueRow, idToIssue map[s
 			SetTextColor(projectColor).
 			SetAlign(tview.AlignLeft))
 
+		// Milestone
+		milestone := issue.MilestoneName
+		milestoneColor := theme.Accent
+		if milestone == "" {
+			milestone = "-"
+			milestoneColor = theme.SecondaryText
+		}
+		if len(milestone) > 20 {
+			milestone = milestone[:20]
+		}
+		table.SetCell(row, 5, tview.NewTableCell(milestone).
+			SetTextColor(milestoneColor).
+			SetAlign(tview.AlignLeft))
+
 		// Title
 		title := issue.Title
-		table.SetCell(row, 5, tview.NewTableCell(title).
+		table.SetCell(row, 6, tview.NewTableCell(title).
 			SetTextColor(theme.Foreground).
 			SetAlign(tview.AlignLeft))
 	}
