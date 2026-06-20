@@ -391,6 +391,40 @@ func progressBar(done, total int) string {
 	return bar
 }
 
+// coloredProgressBar renders the progress bar with the filled portion and the
+// empty track in DISTINCT colors (via tview color tags) so the fill level is
+// legible — a single-color bar hides where filled meets empty.
+func coloredProgressBar(done, total int, filled, track tcell.Color) string {
+	const w = 8
+	eighths := []string{"", "▏", "▎", "▍", "▌", "▋", "▊", "▉"}
+	units := 0
+	if total > 0 {
+		units = done * w * 8 / total
+	}
+	if units > w*8 {
+		units = w * 8
+	}
+	if units < 0 {
+		units = 0
+	}
+	full := units / 8
+	rem := units % 8
+
+	var b strings.Builder
+	b.WriteString(colorTag(filled))
+	b.WriteString(strings.Repeat("█", full))
+	rest := w - full
+	if rem > 0 {
+		b.WriteString(eighths[rem])
+		rest--
+	}
+	b.WriteString("[-]")
+	if rest > 0 {
+		b.WriteString(colorTag(track) + strings.Repeat("░", rest) + "[-]")
+	}
+	return b.String()
+}
+
 // priorityBar renders a horizontal stacked bar of the group's OPEN issues, colored
 // by priority (red/orange/yellow/green). Its length is proportional to the open
 // count (1 block ≈ 1 issue, scaled down past maxPriorityBar), so longer = more open
@@ -454,9 +488,12 @@ func renderGroupHeaderRow(table *tview.Table, row int, r IssueRow, theme Theme) 
 		label = fmt.Sprintf("  %s ◈ %s", chevron, r.GroupLabel)
 	}
 
-	// Column contents. Progress bar comes FIRST (fixed 10 wide) so bars align
-	// vertically and are comparable across rows; the ratio follows.
-	progress := fmt.Sprintf("%s %d/%d", progressBar(r.GroupDone, r.GroupCount), r.GroupDone, r.GroupCount)
+	// Column contents. Progress bar comes FIRST (fixed width) so bars align
+	// vertically and are comparable across rows; the ratio follows. Filled =
+	// bright, track = dim, for legibility.
+	progress := fmt.Sprintf("%s %d/%d",
+		coloredProgressBar(r.GroupDone, r.GroupCount, theme.Foreground, theme.SecondaryText),
+		r.GroupDone, r.GroupCount)
 
 	cycleFlag := ""
 	if r.HasCurrentCycle {
