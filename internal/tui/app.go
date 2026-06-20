@@ -72,9 +72,10 @@ type App struct {
 	focusedPane   FocusTarget
 
 	// Issue tree state (for sub-issue hierarchy)
-	issueRows     []IssueRow                  // Flattened rows for table rendering
-	idToIssue     map[string]*linearapi.Issue // Quick lookup by issue ID
-	expandedState map[string]bool             // Expanded state for parent issues
+	issueRows       []IssueRow                  // Flattened rows for table rendering
+	idToIssue       map[string]*linearapi.Issue // Quick lookup by issue ID
+	expandedState   map[string]bool             // Expanded state for parent issues
+	collapsedGroups map[string]bool             // Collapsed state for project/milestone headers (grouped view)
 
 	// Filter/sort state
 	searchQuery      string
@@ -145,6 +146,7 @@ func NewApp(api *linearapi.Client, cfg config.Config, templates []config.AgentPr
 		sortField:            SortByProjectStatus,
 		hiddenStateTypes:     map[string]bool{"completed": true, "canceled": true, "duplicate": true},
 		expandedState:        make(map[string]bool),
+		collapsedGroups:      make(map[string]bool),
 		idToIssue:            make(map[string]*linearapi.Issue),
 		agentPromptTemplates: templates,
 		splitRatio:           0.5,
@@ -314,7 +316,7 @@ func (a *App) applyThemeStyles() {
 func (a *App) applyThemeToComponents() {
 	if a.issuesTable != nil {
 		a.applyIssuesTableTheme(a.issuesTable)
-		renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, a.currentSelectedIssueID(), a.theme)
+		renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, a.currentSelectedIssueID(), a.theme, a.grouped())
 	}
 
 	if a.detailsDescriptionView != nil {
@@ -417,6 +419,7 @@ func (a *App) resetCachedState() {
 	a.teamUsers = nil
 	a.workflowStates = nil
 	a.expandedState = make(map[string]bool)
+	a.collapsedGroups = make(map[string]bool)
 	a.hiddenStateTypes = map[string]bool{"completed": true, "canceled": true, "duplicate": true}
 
 	a.isLoading = false
@@ -1065,17 +1068,31 @@ func (a *App) updateIssuesData(issues []linearapi.Issue, issueID ...string) {
 	a.updateStatusBar()
 }
 
+// grouped reports whether the current sort mode uses the project/milestone grouped view.
+func (a *App) grouped() bool {
+	return a.sortField == SortByMilestone
+}
+
+// buildRows builds the row model for the current mode: grouped (project/milestone
+// headers + Seq) when in milestone sort, otherwise the sub-issue hierarchy tree.
+func (a *App) buildRows(issues []linearapi.Issue) ([]IssueRow, map[string]*linearapi.Issue) {
+	if a.grouped() {
+		return BuildGroupedRows(issues, a.collapsedGroups)
+	}
+	return BuildIssueRows(issues, a.expandedState)
+}
+
 // rebuildIssuesTable rebuilds issue rows and renders the table, returning the selected issue.
 func (a *App) rebuildIssuesTable(targetIssueID string) *linearapi.Issue {
 	a.issuesMu.RLock()
 	issues := a.issues
 	a.issuesMu.RUnlock()
 
-	// Build hierarchical tree rows.
-	a.issueRows, a.idToIssue = BuildIssueRows(issues, a.expandedState)
+	// Build rows for the current mode.
+	a.issueRows, a.idToIssue = a.buildRows(issues)
 
 	// Render table.
-	renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, targetIssueID, a.theme)
+	renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, targetIssueID, a.theme, a.grouped())
 
 	// Select issue.
 	var selectedIssue *linearapi.Issue
@@ -1319,10 +1336,44 @@ func (a *App) toggleIssueExpanded(issueID string) {
 	a.issuesMu.RLock()
 	issues := a.issues
 	a.issuesMu.RUnlock()
-	a.issueRows, a.idToIssue = BuildIssueRows(issues, a.expandedState)
+	a.issueRows, a.idToIssue = a.buildRows(issues)
 
 	// Render table, selecting the toggled issue
-	renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, issueID, a.theme)
+	renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, issueID, a.theme, a.grouped())
+}
+
+// rowModelAt returns the row model for a table row (1-based, header at row 0), or nil.
+func (a *App) rowModelAt(row int) *IssueRow {
+	idx := row - 1
+	if idx < 0 || idx >= len(a.issueRows) {
+		return nil
+	}
+	return &a.issueRows[idx]
+}
+
+// toggleGroupCollapse flips a project/milestone group's collapsed state and rebuilds,
+// keeping the same table row selected so the cursor stays on the toggled header.
+func (a *App) toggleGroupCollapse(groupKey string) {
+	if groupKey == "" {
+		return
+	}
+	selectedRow, _ := a.issuesTable.GetSelection()
+	a.collapsedGroups[groupKey] = !a.collapsedGroups[groupKey]
+
+	a.issuesMu.RLock()
+	issues := a.issues
+	a.issuesMu.RUnlock()
+	a.issueRows, a.idToIssue = a.buildRows(issues)
+	renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, "", a.theme, a.grouped())
+
+	// Clamp selection back to the toggled header row.
+	if selectedRow > len(a.issueRows) {
+		selectedRow = len(a.issueRows)
+	}
+	if selectedRow < 1 {
+		selectedRow = 1
+	}
+	a.issuesTable.Select(selectedRow, 0)
 }
 
 // setSearchQuery sets the search query and refreshes issues.

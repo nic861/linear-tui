@@ -492,7 +492,7 @@ func DefaultCommands(app *App) []Command {
 					selectedID = a.selectedIssue.ID
 				}
 				a.issuesMu.RUnlock()
-				renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, selectedID, a.theme)
+				renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, selectedID, a.theme, a.grouped())
 			},
 		},
 		{
@@ -514,7 +514,7 @@ func DefaultCommands(app *App) []Command {
 					selectedID = a.selectedIssue.ID
 				}
 				a.issuesMu.RUnlock()
-				renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, selectedID, a.theme)
+				renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, selectedID, a.theme, a.grouped())
 			},
 		},
 		{

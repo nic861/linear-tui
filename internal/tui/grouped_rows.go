@@ -2,6 +2,7 @@ package tui
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/roeyazroel/linear-tui/internal/linearapi"
 )
@@ -19,6 +20,25 @@ func projectGroupKey(project string) string {
 
 func milestoneGroupKey(project, milestone string) string {
 	return "M\x00" + project + "\x00" + milestone
+}
+
+// parseProjectKey returns the project name if key is a project group key.
+func parseProjectKey(key string) (project string, ok bool) {
+	if strings.HasPrefix(key, "P\x00") {
+		return key[len("P\x00"):], true
+	}
+	return "", false
+}
+
+// parseMilestoneKey returns the project + milestone if key is a milestone group key.
+func parseMilestoneKey(key string) (project, milestone string, ok bool) {
+	if strings.HasPrefix(key, "M\x00") {
+		parts := strings.SplitN(key[len("M\x00"):], "\x00", 2)
+		if len(parts) == 2 {
+			return parts[0], parts[1], true
+		}
+	}
+	return "", "", false
 }
 
 // isClosed reports whether an issue counts as resolved for rollup purposes.
