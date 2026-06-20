@@ -391,38 +391,28 @@ func progressBar(done, total int) string {
 	return bar
 }
 
-// coloredProgressBar renders the progress bar with the filled portion and the
+// coloredProgressBar renders a 10-cell ▰/▱ bar with the filled portion and the
 // empty track in DISTINCT colors (via tview color tags) so the fill level is
 // legible — a single-color bar hides where filled meets empty.
 func coloredProgressBar(done, total int, filled, track tcell.Color) string {
-	const w = 8
-	eighths := []string{"", "▏", "▎", "▍", "▌", "▋", "▊", "▉"}
-	units := 0
+	const w = 10
+	n := 0
 	if total > 0 {
-		units = done * w * 8 / total
+		n = done * w / total
 	}
-	if units > w*8 {
-		units = w * 8
+	if n > w {
+		n = w
 	}
-	if units < 0 {
-		units = 0
+	if n < 0 {
+		n = 0
 	}
-	full := units / 8
-	rem := units % 8
+	return colorTag(filled) + strings.Repeat("▰", n) + "[-]" +
+		colorTag(track) + strings.Repeat("▱", w-n) + "[-]"
+}
 
-	var b strings.Builder
-	b.WriteString(colorTag(filled))
-	b.WriteString(strings.Repeat("█", full))
-	rest := w - full
-	if rem > 0 {
-		b.WriteString(eighths[rem])
-		rest--
-	}
-	b.WriteString("[-]")
-	if rest > 0 {
-		b.WriteString(colorTag(track) + strings.Repeat("░", rest) + "[-]")
-	}
-	return b.String()
+// boldColorTag returns a tview color tag with the bold attribute set.
+func boldColorTag(c tcell.Color) string {
+	return strings.TrimSuffix(colorTag(c), "]") + "::b]"
 }
 
 // priorityBar renders a horizontal stacked bar of the group's OPEN issues, colored
@@ -458,8 +448,16 @@ func priorityBar(r IssueRow, theme Theme) string {
 		}
 		return colorTag(c) + strings.Repeat("▰", b) + "[-]"
 	}
+	// Urgent gets bold + a heavier glyph so it stands out hardest.
+	urgentSeg := func(n int) string {
+		b := blocks(n)
+		if b == 0 {
+			return ""
+		}
+		return boldColorTag(theme.PriorityUrgent) + strings.Repeat("█", b) + "[-]"
+	}
 
-	bar := seg(theme.PriorityUrgent, r.OpenUrgent) +
+	bar := urgentSeg(r.OpenUrgent) +
 		seg(theme.PriorityHigh, r.OpenHigh) +
 		seg(theme.PriorityMedium, r.OpenMed) +
 		seg(theme.PriorityLow, r.OpenLow)
@@ -492,7 +490,7 @@ func renderGroupHeaderRow(table *tview.Table, row int, r IssueRow, theme Theme) 
 	// vertically and are comparable across rows; the ratio follows. Filled =
 	// bright, track = dim, for legibility.
 	progress := fmt.Sprintf("%s %d/%d",
-		coloredProgressBar(r.GroupDone, r.GroupCount, theme.Foreground, theme.SecondaryText),
+		coloredProgressBar(r.GroupDone, r.GroupCount, theme.Accent, theme.Border),
 		r.GroupDone, r.GroupCount)
 
 	cycleFlag := ""
