@@ -204,6 +204,15 @@ func DefaultCommands(app *App) []Command {
 			},
 		},
 		{
+			ID:           "cycle_fold",
+			Title:        "Fold (grouped view): all collapsed → milestone overview → expanded",
+			Keywords:     []string{"fold", "collapse", "expand", "all", "milestone", "overview", "outline"},
+			ShortcutRune: 'z',
+			Run: func(a *App) {
+				a.cycleFold()
+			},
+		},
+		{
 			ID:           "filter_status",
 			Title:        "Filter by status type",
 			Keywords:     []string{"filter", "status", "state", "show", "hide", "toggle"},

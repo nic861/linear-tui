@@ -76,6 +76,7 @@ type App struct {
 	idToIssue       map[string]*linearapi.Issue // Quick lookup by issue ID
 	expandedState   map[string]bool             // Expanded state for parent issues
 	collapsedGroups map[string]bool             // Collapsed state for project/milestone headers (grouped view)
+	foldLevel       int                         // Grouped-view fold level: 0=all collapsed, 1=milestone overview, 2=expanded
 
 	// Filter/sort state
 	searchQuery      string
@@ -147,6 +148,7 @@ func NewApp(api *linearapi.Client, cfg config.Config, templates []config.AgentPr
 		hiddenStateTypes:     map[string]bool{"completed": true, "canceled": true, "duplicate": true},
 		expandedState:        make(map[string]bool),
 		collapsedGroups:      make(map[string]bool),
+		foldLevel:            2, // start fully expanded
 		idToIssue:            make(map[string]*linearapi.Issue),
 		agentPromptTemplates: templates,
 		splitRatio:           0.5,
@@ -1346,6 +1348,77 @@ func (a *App) toggleIssueExpanded(issueID string) {
 
 	// Render table, selecting the toggled issue
 	renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, issueID, a.theme, a.grouped())
+}
+
+// enumerateGroupKeys returns the project and milestone group keys present in the
+// current issue set (grouped view), used to bulk collapse/expand.
+func (a *App) enumerateGroupKeys() (projKeys, msKeys []string) {
+	a.issuesMu.RLock()
+	issues := a.issues
+	a.issuesMu.RUnlock()
+
+	seenP := make(map[string]bool)
+	seenM := make(map[string]bool)
+	for i := range issues {
+		p := issues[i].ProjectName
+		if p == "" {
+			p = noProjectLabel
+		}
+		m := issues[i].MilestoneName
+		if m == "" {
+			m = noMilestoneLabel
+		}
+		pk := projectGroupKey(p)
+		if !seenP[pk] {
+			seenP[pk] = true
+			projKeys = append(projKeys, pk)
+		}
+		mk := milestoneGroupKey(p, m)
+		if !seenM[mk] {
+			seenM[mk] = true
+			msKeys = append(msKeys, mk)
+		}
+	}
+	return projKeys, msKeys
+}
+
+// applyFoldLevel sets the collapse state for the whole grouped view:
+// 0 = all projects collapsed, 1 = projects open but milestones collapsed,
+// 2 = everything expanded. Rebuilds and re-renders.
+func (a *App) applyFoldLevel(level int) {
+	projKeys, msKeys := a.enumerateGroupKeys()
+	a.collapsedGroups = make(map[string]bool)
+	switch level {
+	case 0:
+		for _, k := range projKeys {
+			a.collapsedGroups[k] = true
+		}
+	case 1:
+		for _, k := range msKeys {
+			a.collapsedGroups[k] = true
+		}
+	}
+
+	a.issuesMu.RLock()
+	issues := a.issues
+	a.issuesMu.RUnlock()
+	a.issueRows, a.idToIssue = a.buildRows(issues)
+	renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, "", a.theme, a.grouped())
+	if len(a.issueRows) > 0 {
+		a.issuesTable.Select(1, 0)
+	}
+}
+
+// cycleFold advances the grouped-view fold level (all-collapsed → milestone
+// overview → expanded). Outside grouped mode it switches into it first.
+func (a *App) cycleFold() {
+	if !a.grouped() {
+		a.setSortField(SortByMilestone)
+		return
+	}
+	a.foldLevel = (a.foldLevel + 1) % 3
+	a.applyFoldLevel(a.foldLevel)
+	a.updateStatusBar()
 }
 
 // rowModelAt returns the row model for a table row (1-based, header at row 0), or nil.

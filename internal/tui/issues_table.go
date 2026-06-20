@@ -457,11 +457,6 @@ func renderGroupHeaderRow(table *tview.Table, row int, r IssueRow, theme Theme) 
 		stateCounts = "✓"
 	}
 
-	urgent := ""
-	if r.OpenUrgent > 0 {
-		urgent = fmt.Sprintf("⚡%d", r.OpenUrgent)
-	}
-
 	// Proportional, color-coded priority bar of OPEN issues (replaces U/H/M/L
 	// numbers). Milestone lines are indented so the bar reads as summarized
 	// under the project.
@@ -482,7 +477,7 @@ func renderGroupHeaderRow(table *tview.Table, row int, r IssueRow, theme Theme) 
 	set(gID, progress, nameFg)
 	set(gCycle, cycleFlag, theme.StatusInProgress) // bright/yellow = active now
 	set(gState, stateCounts, theme.SecondaryText)
-	set(gPriority, urgent, theme.PriorityUrgent) // red alarm (⚡ = urgent everywhere)
+	set(gPriority, "", theme.SecondaryText) // (urgent now shown by the red bar segment)
 	set(gTitle, breakdown, theme.SecondaryText)
 }
 
