@@ -1482,7 +1482,7 @@ func (a *App) updateStatusBar() {
 
 	switch a.focusedPane {
 	case FocusIssues:
-		helpText = fmt.Sprintf("%sj/k: navigate | Enter/l: details | s: sort | t: status | :: palette | /: search | q: quit[-]", keyColor)
+		helpText = fmt.Sprintf("%sj/k: navigate | Enter/l: details | s: sort | z: fold | t: status | :: palette | /: search | q: quit[-]", keyColor)
 	case FocusDetails:
 		helpText = fmt.Sprintf("%sj/k: scroll | h: back | s: sort | t: status | :: palette | /: search | q: quit[-]", keyColor)
 	case FocusPalette:

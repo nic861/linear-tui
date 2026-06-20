@@ -362,20 +362,33 @@ const (
 	gTitle    = 5 // title (issue) — open priority breakdown (header)
 )
 
-// progressBar renders a 10-cell filled/empty bar for a done/total ratio.
+// progressBar renders a 10-cell bar for a done/total ratio with sub-cell precision
+// using Unicode eighth-blocks (font-independent), on a light track.
 func progressBar(done, total int) string {
-	if total <= 0 {
-		return ""
-	}
 	const w = 10
-	filled := done * w / total
-	if filled > w {
-		filled = w
+	if total <= 0 {
+		return strings.Repeat("░", w)
 	}
-	if filled < 0 {
-		filled = 0
+	eighths := []string{"", "▏", "▎", "▍", "▌", "▋", "▊", "▉"}
+	units := done * w * 8 / total // total eighths filled
+	if units > w*8 {
+		units = w * 8
 	}
-	return strings.Repeat("▰", filled) + strings.Repeat("▱", w-filled)
+	if units < 0 {
+		units = 0
+	}
+	full := units / 8
+	rem := units % 8
+	bar := strings.Repeat("█", full)
+	track := w - full
+	if rem > 0 {
+		bar += eighths[rem]
+		track--
+	}
+	if track > 0 {
+		bar += strings.Repeat("░", track)
+	}
+	return bar
 }
 
 // priorityBar renders a horizontal stacked bar of the group's OPEN issues, colored
@@ -409,7 +422,7 @@ func priorityBar(r IssueRow, theme Theme) string {
 		if b == 0 {
 			return ""
 		}
-		return colorTag(c) + strings.Repeat("█", b) + "[-]"
+		return colorTag(c) + strings.Repeat("▰", b) + "[-]"
 	}
 
 	bar := seg(theme.PriorityUrgent, r.OpenUrgent) +
