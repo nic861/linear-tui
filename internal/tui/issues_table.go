@@ -410,11 +410,6 @@ func coloredProgressBar(done, total int, filled, track tcell.Color) string {
 		colorTag(track) + strings.Repeat("▱", w-n) + "[-]"
 }
 
-// boldColorTag returns a tview color tag with the bold attribute set.
-func boldColorTag(c tcell.Color) string {
-	return strings.TrimSuffix(colorTag(c), "]") + "::b]"
-}
-
 // priorityBar renders a horizontal stacked bar of the group's OPEN issues, colored
 // by priority (red/orange/yellow/green). Its length is proportional to the open
 // count (1 block ≈ 1 issue, scaled down past maxPriorityBar), so longer = more open
@@ -448,16 +443,10 @@ func priorityBar(r IssueRow, theme Theme) string {
 		}
 		return colorTag(c) + strings.Repeat("▰", b) + "[-]"
 	}
-	// Urgent gets bold + a heavier glyph so it stands out hardest.
-	urgentSeg := func(n int) string {
-		b := blocks(n)
-		if b == 0 {
-			return ""
-		}
-		return boldColorTag(theme.PriorityUrgent) + strings.Repeat("█", b) + "[-]"
-	}
 
-	bar := urgentSeg(r.OpenUrgent) +
+	// All segments use the same ▰ glyph (same size); urgent stands out by its
+	// vivid red color, not by a heavier block.
+	bar := seg(theme.PriorityUrgent, r.OpenUrgent) +
 		seg(theme.PriorityHigh, r.OpenHigh) +
 		seg(theme.PriorityMedium, r.OpenMed) +
 		seg(theme.PriorityLow, r.OpenLow)
