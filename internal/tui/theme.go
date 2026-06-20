@@ -19,6 +19,7 @@ type Theme struct {
 	HeaderText    tcell.Color
 	SecondaryText tcell.Color
 	Accent        tcell.Color
+	Milestone     tcell.Color // bright, high-visibility color for milestone labels
 	InputBg       tcell.Color
 
 	// Status Colors
@@ -27,6 +28,12 @@ type Theme struct {
 	StatusDone       tcell.Color
 	StatusCanceled   tcell.Color
 	StatusBlocked    tcell.Color
+
+	// Priority Colors (Urgent=red, High=orange, Medium=yellow, Low=green)
+	PriorityUrgent tcell.Color
+	PriorityHigh   tcell.Color
+	PriorityMedium tcell.Color
+	PriorityLow    tcell.Color
 }
 
 // LinearTheme is the default dark theme inspired by Linear.
@@ -41,6 +48,7 @@ var LinearTheme = Theme{
 	HeaderText:    tcell.NewRGBColor(160, 160, 160), // #A0A0A0
 	SecondaryText: tcell.NewRGBColor(120, 120, 120), // #787878
 	Accent:        tcell.NewRGBColor(94, 106, 210),  // #5E6AD2
+	Milestone:     tcell.NewRGBColor(255, 165, 0),   // #FFA500 bright orange
 	InputBg:       tcell.ColorDarkGray,
 
 	StatusTodo:       tcell.NewRGBColor(140, 140, 140), // Gray
@@ -48,6 +56,11 @@ var LinearTheme = Theme{
 	StatusDone:       tcell.NewRGBColor(94, 106, 210),  // Purple/Blue (Linear uses purple for done often, or green)
 	StatusCanceled:   tcell.NewRGBColor(255, 80, 80),   // Red
 	StatusBlocked:    tcell.NewRGBColor(255, 140, 0),   // Bright orange (distinct from Canceled red)
+
+	PriorityUrgent: tcell.NewRGBColor(255, 40, 40),  // Vivid red
+	PriorityHigh:   tcell.NewRGBColor(255, 165, 0),  // Orange
+	PriorityMedium: tcell.NewRGBColor(242, 201, 76), // Yellow
+	PriorityLow:    tcell.NewRGBColor(82, 196, 118), // Green
 }
 
 // HighContrastTheme is a high contrast theme for improved legibility.
@@ -62,6 +75,7 @@ var HighContrastTheme = Theme{
 	HeaderText:    tcell.NewRGBColor(255, 255, 255), // #FFFFFF
 	SecondaryText: tcell.NewRGBColor(200, 200, 200), // #C8C8C8
 	Accent:        tcell.NewRGBColor(255, 255, 0),   // #FFFF00
+	Milestone:     tcell.NewRGBColor(255, 165, 0),   // #FFA500 bright orange
 	InputBg:       tcell.NewRGBColor(30, 30, 30),    // #1E1E1E
 
 	StatusTodo:       tcell.NewRGBColor(255, 255, 255), // White
@@ -69,6 +83,11 @@ var HighContrastTheme = Theme{
 	StatusDone:       tcell.NewRGBColor(0, 255, 0),     // Green
 	StatusCanceled:   tcell.NewRGBColor(255, 0, 0),     // Red
 	StatusBlocked:    tcell.NewRGBColor(255, 140, 0),   // Bright orange (distinct from Canceled red)
+
+	PriorityUrgent: tcell.NewRGBColor(255, 0, 0),   // Red
+	PriorityHigh:   tcell.NewRGBColor(255, 140, 0), // Orange
+	PriorityMedium: tcell.NewRGBColor(255, 255, 0), // Yellow
+	PriorityLow:    tcell.NewRGBColor(0, 255, 0),   // Green
 }
 
 // ColorBlindTheme is a color-blind friendly palette.
@@ -83,6 +102,7 @@ var ColorBlindTheme = Theme{
 	HeaderText:    tcell.NewRGBColor(207, 207, 207), // #CFCFCF
 	SecondaryText: tcell.NewRGBColor(154, 154, 154), // #9A9A9A
 	Accent:        tcell.NewRGBColor(0, 114, 178),   // #0072B2
+	Milestone:     tcell.NewRGBColor(230, 159, 0),   // #E69F00 Okabe-Ito orange (colorblind-safe)
 	InputBg:       tcell.NewRGBColor(42, 42, 42),    // #2A2A2A
 
 	StatusTodo:       tcell.NewRGBColor(153, 153, 153), // Gray
@@ -90,6 +110,12 @@ var ColorBlindTheme = Theme{
 	StatusDone:       tcell.NewRGBColor(0, 158, 115),   // #009E73
 	StatusCanceled:   tcell.NewRGBColor(213, 94, 0),    // #D55E00
 	StatusBlocked:    tcell.NewRGBColor(204, 121, 167), // #CC79A7
+
+	// Okabe-Ito colorblind-safe palette.
+	PriorityUrgent: tcell.NewRGBColor(213, 94, 0),   // Vermillion
+	PriorityHigh:   tcell.NewRGBColor(230, 159, 0),  // Orange
+	PriorityMedium: tcell.NewRGBColor(240, 228, 66), // Yellow
+	PriorityLow:    tcell.NewRGBColor(0, 158, 115),  // Bluish green
 }
 
 // ThemeTags provides tview tag strings derived from a theme.
@@ -98,6 +124,7 @@ type ThemeTags struct {
 	SecondaryText string
 	HeaderText    string
 	Accent        string
+	Milestone     string
 	Border        string
 	Warning       string
 	Error         string
@@ -125,6 +152,7 @@ func NewThemeTags(theme Theme) ThemeTags {
 		SecondaryText: colorTag(theme.SecondaryText),
 		HeaderText:    colorTag(theme.HeaderText),
 		Accent:        colorTag(theme.Accent),
+		Milestone:     colorTag(theme.Milestone),
 		Border:        colorTag(theme.Border),
 		Warning:       colorTag(theme.StatusInProgress),
 		Error:         colorTag(theme.StatusCanceled),

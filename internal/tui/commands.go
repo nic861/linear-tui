@@ -185,12 +185,14 @@ func DefaultCommands(app *App) []Command {
 		},
 		{
 			ID:           "cycle_sort",
-			Title:        "Cycle sort mode (project → status → cycle → priority)",
-			Keywords:     []string{"sort", "cycle", "project", "status", "priority"},
+			Title:        "Sort mode (project → milestone → cycle → status → priority)",
+			Keywords:     []string{"sort", "milestone", "cycle", "project", "status", "priority"},
 			ShortcutRune: 's',
 			Run: func(a *App) {
 				switch a.sortField {
 				case SortByProjectStatus:
+					a.setSortField(SortByMilestone)
+				case SortByMilestone:
 					a.setSortField(SortByStatusPriority)
 				case SortByStatusPriority:
 					a.setSortField(SortByCycle)
@@ -199,6 +201,15 @@ func DefaultCommands(app *App) []Command {
 				default:
 					a.setSortField(SortByProjectStatus)
 				}
+			},
+		},
+		{
+			ID:           "cycle_fold",
+			Title:        "Fold (grouped view): all collapsed → milestone overview → expanded",
+			Keywords:     []string{"fold", "collapse", "expand", "all", "milestone", "overview", "outline"},
+			ShortcutRune: 'z',
+			Run: func(a *App) {
+				a.cycleFold()
 			},
 		},
 		{
@@ -490,7 +501,7 @@ func DefaultCommands(app *App) []Command {
 					selectedID = a.selectedIssue.ID
 				}
 				a.issuesMu.RUnlock()
-				renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, selectedID, a.theme)
+				renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, selectedID, a.theme, a.grouped())
 			},
 		},
 		{
@@ -512,7 +523,7 @@ func DefaultCommands(app *App) []Command {
 					selectedID = a.selectedIssue.ID
 				}
 				a.issuesMu.RUnlock()
-				renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, selectedID, a.theme)
+				renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, selectedID, a.theme, a.grouped())
 			},
 		},
 		{

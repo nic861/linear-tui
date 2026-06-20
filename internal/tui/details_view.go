@@ -128,6 +128,16 @@ func buildDetailsHeader(issue *linearapi.Issue, tags ThemeTags, sectionGap int) 
 
 	headerLines = append(headerLines, fmt.Sprintf("%sPriority:[-]   %s%d[-]", keyColor, valColor, issue.Priority))
 
+	// Project
+	if issue.ProjectName != "" {
+		headerLines = append(headerLines, fmt.Sprintf("%sProject:[-]    %s%s[-]", keyColor, valColor, issue.ProjectName))
+	}
+
+	// Milestone
+	if issue.MilestoneName != "" {
+		headerLines = append(headerLines, fmt.Sprintf("%sMilestone:[-]  %s%s[-]", keyColor, tags.Milestone, issue.MilestoneName))
+	}
+
 	// Cycle
 	if issue.CycleName != "" {
 		headerLines = append(headerLines, fmt.Sprintf("%sCycle:[-]      %s%s[-]", keyColor, valColor, issue.CycleName))
@@ -208,6 +218,171 @@ func appendRelationSection(
 	}
 
 	return headerLines
+}
+
+// showGroupDetails renders a project/milestone group panel into the details view
+// (a milestone-grouped-view affordance: select a header row to inspect the group).
+func (a *App) showGroupDetails(r IssueRow) {
+	if a.detailsDescriptionView == nil {
+		return
+	}
+	a.issuesMu.Lock()
+	a.selectedIssue = nil
+	issues := a.issues
+	a.issuesMu.Unlock()
+
+	a.setDetailsCommentsVisibility(false)
+	a.detailsDescriptionView.Clear()
+	a.detailsDescriptionView.SetText(buildGroupDetailsText(r, issues, a.themeTags))
+	a.detailsDescriptionView.ScrollToBeginning()
+}
+
+// truncateRunes shortens s to at most n runes, appending an ellipsis when cut.
+func truncateRunes(s string, n int) string {
+	rs := []rune(s)
+	if len(rs) <= n {
+		return s
+	}
+	if n <= 1 {
+		return string(rs[:n])
+	}
+	return string(rs[:n-1]) + "…"
+}
+
+// buildGroupDetailsText renders the right-pane content for a project/milestone header.
+func buildGroupDetailsText(r IssueRow, issues []linearapi.Issue, tags ThemeTags) string {
+	keyColor := tags.SecondaryText
+	valColor := tags.Foreground
+	accentColor := tags.Accent
+
+	var titleLine, projName, msName string
+	isMilestone := false
+	scope := func(linearapi.Issue) bool { return false }
+
+	if p, ok := parseProjectKey(r.GroupKey); ok {
+		projName = p
+		titleLine = fmt.Sprintf("%s▦ %s[-]", accentColor, p)
+		scope = func(is linearapi.Issue) bool {
+			pn := is.ProjectName
+			if pn == "" {
+				pn = noProjectLabel
+			}
+			return pn == p
+		}
+	} else if p, m, ok := parseMilestoneKey(r.GroupKey); ok {
+		isMilestone = true
+		projName, msName = p, m
+		titleLine = fmt.Sprintf("%s◈ %s[-]", tags.Milestone, m)
+		scope = func(is linearapi.Issue) bool {
+			pn := is.ProjectName
+			if pn == "" {
+				pn = noProjectLabel
+			}
+			mn := is.MilestoneName
+			if mn == "" {
+				mn = noMilestoneLabel
+			}
+			return pn == p && mn == m
+		}
+	} else {
+		return ""
+	}
+	_ = msName
+
+	var members []*linearapi.Issue
+	var done, prog, todo, canc int
+	for i := range issues {
+		if !scope(issues[i]) {
+			continue
+		}
+		members = append(members, &issues[i])
+		switch issues[i].StateType {
+		case "completed":
+			done++
+		case "started":
+			prog++
+		case "canceled", "duplicate":
+			canc++
+		default:
+			todo++
+		}
+	}
+	total := len(members)
+
+	var b strings.Builder
+	b.WriteString(titleLine + "\n\n")
+	if isMilestone {
+		b.WriteString(fmt.Sprintf("%sProject:[-]    %s%s[-]\n", keyColor, valColor, projName))
+	}
+	pct := 0
+	if total > 0 {
+		pct = done * 100 / total
+	}
+	b.WriteString(fmt.Sprintf("%sProgress:[-]   %s%d%%[-]  %s%s[-]\n", keyColor, valColor, pct, accentColor, progressBar(done, total)))
+	b.WriteString(fmt.Sprintf("%sIssues:[-]     %s● %d done  ◐ %d in progress  ○ %d todo", keyColor, valColor, done, prog, todo))
+	if canc > 0 {
+		b.WriteString(fmt.Sprintf("  ✕ %d", canc))
+	}
+	b.WriteString(fmt.Sprintf("  (%d total)[-]\n", total))
+
+	if isMilestone {
+		ids := make(map[string]bool, len(members))
+		doneSet := make(map[string]bool, len(members))
+		for _, m := range members {
+			ids[m.ID] = true
+			if isClosed(m.StateType) {
+				doneSet[m.ID] = true
+			}
+		}
+		var ready []*linearapi.Issue
+		for _, m := range members {
+			if isClosed(m.StateType) {
+				continue
+			}
+			blocked := false
+			for _, bl := range m.BlockedBy {
+				if ids[bl.ID] && !doneSet[bl.ID] {
+					blocked = true
+					break
+				}
+			}
+			if !blocked {
+				ready = append(ready, m)
+			}
+		}
+		b.WriteString("\n")
+		switch {
+		case total > 0 && done == total:
+			b.WriteString(fmt.Sprintf("%sNext up:[-]    %sall complete ✓[-]\n", keyColor, accentColor))
+		case len(ready) == 0:
+			b.WriteString(fmt.Sprintf("%sNext up:[-]    %snone unblocked[-]\n", keyColor, keyColor))
+		default:
+			b.WriteString(fmt.Sprintf("%sNext up:[-]\n", keyColor))
+			for i, m := range ready {
+				if i >= 6 {
+					b.WriteString(fmt.Sprintf("  %s… +%d more[-]\n", keyColor, len(ready)-6))
+					break
+				}
+				b.WriteString(fmt.Sprintf("  %s%s[-] %s%s[-]\n", accentColor, m.Identifier, valColor, truncateRunes(m.Title, 52)))
+			}
+		}
+	} else {
+		seen := make(map[string]bool)
+		var msList []string
+		for _, m := range members {
+			mn := m.MilestoneName
+			if mn == "" {
+				mn = noMilestoneLabel
+			}
+			if !seen[mn] {
+				seen[mn] = true
+				msList = append(msList, mn)
+			}
+		}
+		b.WriteString(fmt.Sprintf("\n%sMilestones:[-] %s%s[-]\n", keyColor, valColor, strings.Join(msList, ", ")))
+	}
+
+	return b.String()
 }
 
 // updateDetailsView updates the details view with the selected issue.

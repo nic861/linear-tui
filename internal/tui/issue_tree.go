@@ -6,13 +6,45 @@ import (
 	"github.com/roeyazroel/linear-tui/internal/linearapi"
 )
 
+// RowKind distinguishes issue rows from group-header rows in the grouped view.
+type RowKind int
+
+const (
+	RowIssue     RowKind = iota // a normal issue row
+	RowProject                  // a project group-header row
+	RowMilestone                // a milestone group-header row
+)
+
 // IssueRow represents a single row in the issues table with hierarchy info.
+// A row is either an issue (Kind == RowIssue) or a collapsible group header
+// (Kind == RowProject / RowMilestone) used by the milestone-grouped view.
 type IssueRow struct {
-	IssueID     string // Reference to the issue
-	Level       int    // Nesting level (0 = top-level, 1 = child, etc.)
-	IsParent    bool   // True if this issue has children
-	HasChildren bool   // True if this issue has children (same as IsParent for now)
-	IsExpanded  bool   // True if children are shown (only meaningful when HasChildren is true)
+	Kind        RowKind // issue vs group header
+	IssueID     string  // Reference to the issue (RowIssue only)
+	Level       int     // Nesting level (0 = top-level, 1 = child, etc.)
+	IsParent    bool    // True if this issue has children
+	HasChildren bool    // True if this issue has children (same as IsParent for now)
+	IsExpanded  bool    // True if children are shown (only meaningful when HasChildren is true)
+
+	// Group-header fields (RowProject / RowMilestone only).
+	GroupKey   string // stable key for collapse state
+	GroupLabel string // display name (project or milestone name)
+	GroupCount int    // number of issues in the group
+	GroupDone  int    // number of completed issues in the group
+	Collapsed  bool   // whether the group is collapsed
+
+	// Group-header rollup (open = not done/canceled), for scanning collapsed lists.
+	OpenUrgent      int  // priority 1
+	OpenHigh        int  // priority 2
+	OpenMed         int  // priority 3
+	OpenLow         int  // priority 4 (and no-priority)
+	OpenInProgress  int  // started state
+	OpenTodo        int  // backlog/unstarted
+	HasCurrentCycle bool // any issue in the group is in the active cycle
+
+	// Sequence fields (RowIssue in grouped/milestone mode only).
+	Seq         int  // dependency depth within the milestone (0 = not applicable)
+	SeqParallel bool // shares its rank with a sibling (no ordering constraint between them)
 }
 
 // BuildIssueRows constructs a flattened list of rows for table rendering.

@@ -27,6 +27,7 @@ const (
 	SortByProjectStatus  SortField = "projectStatus"  // project → status → priority
 	SortByStatusPriority SortField = "statusPriority" // status → priority
 	SortByCycle          SortField = "cycle"          // cycle → status → priority
+	SortByMilestone      SortField = "milestone"      // project → milestone → status → priority
 )
 
 // App is the main application controller that manages all UI components.
@@ -71,9 +72,11 @@ type App struct {
 	focusedPane   FocusTarget
 
 	// Issue tree state (for sub-issue hierarchy)
-	issueRows     []IssueRow                  // Flattened rows for table rendering
-	idToIssue     map[string]*linearapi.Issue // Quick lookup by issue ID
-	expandedState map[string]bool             // Expanded state for parent issues
+	issueRows       []IssueRow                  // Flattened rows for table rendering
+	idToIssue       map[string]*linearapi.Issue // Quick lookup by issue ID
+	expandedState   map[string]bool             // Expanded state for parent issues
+	collapsedGroups map[string]bool             // Collapsed state for project/milestone headers (grouped view)
+	foldLevel       int                         // Grouped-view fold level: 0=all collapsed, 1=milestone overview, 2=expanded
 
 	// Filter/sort state
 	searchQuery      string
@@ -144,6 +147,8 @@ func NewApp(api *linearapi.Client, cfg config.Config, templates []config.AgentPr
 		sortField:            SortByProjectStatus,
 		hiddenStateTypes:     map[string]bool{"completed": true, "canceled": true, "duplicate": true},
 		expandedState:        make(map[string]bool),
+		collapsedGroups:      make(map[string]bool),
+		foldLevel:            2, // start fully expanded
 		idToIssue:            make(map[string]*linearapi.Issue),
 		agentPromptTemplates: templates,
 		splitRatio:           0.5,
@@ -313,7 +318,7 @@ func (a *App) applyThemeStyles() {
 func (a *App) applyThemeToComponents() {
 	if a.issuesTable != nil {
 		a.applyIssuesTableTheme(a.issuesTable)
-		renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, a.currentSelectedIssueID(), a.theme)
+		renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, a.currentSelectedIssueID(), a.theme, a.grouped())
 	}
 
 	if a.detailsDescriptionView != nil {
@@ -416,6 +421,7 @@ func (a *App) resetCachedState() {
 	a.teamUsers = nil
 	a.workflowStates = nil
 	a.expandedState = make(map[string]bool)
+	a.collapsedGroups = make(map[string]bool)
 	a.hiddenStateTypes = map[string]bool{"completed": true, "canceled": true, "duplicate": true}
 
 	a.isLoading = false
@@ -935,13 +941,19 @@ func (a *App) refreshIssuesWithFocusChange(allowFocusChange bool, issueID ...str
 		// Custom sort modes use client-side sorting, fetch with updatedAt from API.
 		apiOrderBy := string(a.sortField)
 		switch a.sortField {
-		case SortByProjectStatus, SortByStatusPriority, SortByCycle:
+		case SortByProjectStatus, SortByStatusPriority, SortByCycle, SortByMilestone:
 			apiOrderBy = string(SortByUpdatedAt)
 		}
 
 		// Build excluded state types list from hiddenStateTypes map.
+		// In the grouped (milestone) view we still COUNT completed issues toward
+		// milestone progress, so we must fetch them even when they're hidden — their
+		// rows are filtered out at build time, but the rollup needs them.
 		var excludeTypes []string
 		for st := range a.hiddenStateTypes {
+			if a.grouped() && st == "completed" {
+				continue
+			}
 			excludeTypes = append(excludeTypes, st)
 		}
 
@@ -1064,17 +1076,31 @@ func (a *App) updateIssuesData(issues []linearapi.Issue, issueID ...string) {
 	a.updateStatusBar()
 }
 
+// grouped reports whether the current sort mode uses the project/milestone grouped view.
+func (a *App) grouped() bool {
+	return a.sortField == SortByMilestone
+}
+
+// buildRows builds the row model for the current mode: grouped (project/milestone
+// headers + Seq) when in milestone sort, otherwise the sub-issue hierarchy tree.
+func (a *App) buildRows(issues []linearapi.Issue) ([]IssueRow, map[string]*linearapi.Issue) {
+	if a.grouped() {
+		return BuildGroupedRows(issues, a.collapsedGroups, a.hiddenStateTypes)
+	}
+	return BuildIssueRows(issues, a.expandedState)
+}
+
 // rebuildIssuesTable rebuilds issue rows and renders the table, returning the selected issue.
 func (a *App) rebuildIssuesTable(targetIssueID string) *linearapi.Issue {
 	a.issuesMu.RLock()
 	issues := a.issues
 	a.issuesMu.RUnlock()
 
-	// Build hierarchical tree rows.
-	a.issueRows, a.idToIssue = BuildIssueRows(issues, a.expandedState)
+	// Build rows for the current mode.
+	a.issueRows, a.idToIssue = a.buildRows(issues)
 
 	// Render table.
-	renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, targetIssueID, a.theme)
+	renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, targetIssueID, a.theme, a.grouped())
 
 	// Select issue.
 	var selectedIssue *linearapi.Issue
@@ -1221,6 +1247,39 @@ func sortIssues(issues []linearapi.Issue, field SortField) {
 			// 3. Priority
 			return priorityOrder(a.Priority) < priorityOrder(b.Priority)
 		})
+	case SortByMilestone:
+		sort.SliceStable(issues, func(i, j int) bool {
+			a, b := issues[i], issues[j]
+			// 1. Project name (empty last)
+			ap, bp := a.ProjectName, b.ProjectName
+			if ap == "" {
+				ap = "\xff"
+			}
+			if bp == "" {
+				bp = "\xff"
+			}
+			if ap != bp {
+				return strings.ToLower(ap) < strings.ToLower(bp)
+			}
+			// 2. Milestone name (no-milestone last, within the project)
+			am, bm := a.MilestoneName, b.MilestoneName
+			if am == "" {
+				am = "\xff"
+			}
+			if bm == "" {
+				bm = "\xff"
+			}
+			if am != bm {
+				return strings.ToLower(am) < strings.ToLower(bm)
+			}
+			// 3. State type order
+			sa, sb := stateTypeOrder(a.StateType), stateTypeOrder(b.StateType)
+			if sa != sb {
+				return sa < sb
+			}
+			// 4. Priority
+			return priorityOrder(a.Priority) < priorityOrder(b.Priority)
+		})
 	}
 	// For updatedAt and createdAt, the API handles sorting.
 }
@@ -1285,10 +1344,115 @@ func (a *App) toggleIssueExpanded(issueID string) {
 	a.issuesMu.RLock()
 	issues := a.issues
 	a.issuesMu.RUnlock()
-	a.issueRows, a.idToIssue = BuildIssueRows(issues, a.expandedState)
+	a.issueRows, a.idToIssue = a.buildRows(issues)
 
 	// Render table, selecting the toggled issue
-	renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, issueID, a.theme)
+	renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, issueID, a.theme, a.grouped())
+}
+
+// enumerateGroupKeys returns the project and milestone group keys present in the
+// current issue set (grouped view), used to bulk collapse/expand.
+func (a *App) enumerateGroupKeys() (projKeys, msKeys []string) {
+	a.issuesMu.RLock()
+	issues := a.issues
+	a.issuesMu.RUnlock()
+
+	seenP := make(map[string]bool)
+	seenM := make(map[string]bool)
+	for i := range issues {
+		p := issues[i].ProjectName
+		if p == "" {
+			p = noProjectLabel
+		}
+		m := issues[i].MilestoneName
+		if m == "" {
+			m = noMilestoneLabel
+		}
+		pk := projectGroupKey(p)
+		if !seenP[pk] {
+			seenP[pk] = true
+			projKeys = append(projKeys, pk)
+		}
+		mk := milestoneGroupKey(p, m)
+		if !seenM[mk] {
+			seenM[mk] = true
+			msKeys = append(msKeys, mk)
+		}
+	}
+	return projKeys, msKeys
+}
+
+// applyFoldLevel sets the collapse state for the whole grouped view:
+// 0 = all projects collapsed, 1 = projects open but milestones collapsed,
+// 2 = everything expanded. Rebuilds and re-renders.
+func (a *App) applyFoldLevel(level int) {
+	projKeys, msKeys := a.enumerateGroupKeys()
+	a.collapsedGroups = make(map[string]bool)
+	switch level {
+	case 0:
+		for _, k := range projKeys {
+			a.collapsedGroups[k] = true
+		}
+	case 1:
+		for _, k := range msKeys {
+			a.collapsedGroups[k] = true
+		}
+	}
+
+	a.issuesMu.RLock()
+	issues := a.issues
+	a.issuesMu.RUnlock()
+	a.issueRows, a.idToIssue = a.buildRows(issues)
+	renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, "", a.theme, a.grouped())
+	if len(a.issueRows) > 0 {
+		a.issuesTable.Select(1, 0)
+	}
+}
+
+// cycleFold advances the grouped-view fold level (all-collapsed → milestone
+// overview → expanded). Outside grouped mode it switches into it first.
+func (a *App) cycleFold() {
+	if !a.grouped() {
+		a.setSortField(SortByMilestone)
+		return
+	}
+	a.foldLevel = (a.foldLevel + 1) % 3
+	a.applyFoldLevel(a.foldLevel)
+	a.updateStatusBar()
+}
+
+// rowModelAt returns the row model for a table row (1-based, header at row 0), or nil.
+func (a *App) rowModelAt(row int) *IssueRow {
+	idx := row - 1
+	if idx < 0 || idx >= len(a.issueRows) {
+		return nil
+	}
+	return &a.issueRows[idx]
+}
+
+// toggleGroupCollapse flips a project/milestone group's collapsed state and rebuilds,
+// keeping the same table row selected so the cursor stays on the toggled header.
+func (a *App) toggleGroupCollapse(groupKey string) {
+	if groupKey == "" {
+		return
+	}
+	selectedRow, _ := a.issuesTable.GetSelection()
+	a.collapsedGroups[groupKey] = !a.collapsedGroups[groupKey]
+
+	a.issuesMu.RLock()
+	issues := a.issues
+	a.issuesMu.RUnlock()
+	a.issueRows, a.idToIssue = a.buildRows(issues)
+	renderIssuesTableModel(a.issuesTable, a.issueRows, a.idToIssue, "", a.theme, a.grouped())
+
+	// Clamp selection back to the toggled header row.
+	if selectedRow > len(a.issueRows) {
+		selectedRow = len(a.issueRows)
+	}
+	if selectedRow < 1 {
+		selectedRow = 1
+	}
+	a.issuesTable.Select(selectedRow, 0)
 }
 
 // setSearchQuery sets the search query and refreshes issues.
@@ -1318,7 +1482,7 @@ func (a *App) updateStatusBar() {
 
 	switch a.focusedPane {
 	case FocusIssues:
-		helpText = fmt.Sprintf("%sj/k: navigate | Enter/l: details | s: sort | t: status | :: palette | /: search | q: quit[-]", keyColor)
+		helpText = fmt.Sprintf("%sj/k: navigate | Enter/l: details | s: sort | z: fold | t: status | :: palette | /: search | q: quit[-]", keyColor)
 	case FocusDetails:
 		helpText = fmt.Sprintf("%sj/k: scroll | h: back | s: sort | t: status | :: palette | /: search | q: quit[-]", keyColor)
 	case FocusPalette:
@@ -1346,6 +1510,8 @@ func (a *App) updateStatusBar() {
 		sortLabel = "priority"
 	case SortByCycle:
 		sortLabel = "cycle"
+	case SortByMilestone:
+		sortLabel = "milestone"
 	}
 	sortText := fmt.Sprintf("%s↕ %s[-]", a.themeTags.SecondaryText, sortLabel)
 
