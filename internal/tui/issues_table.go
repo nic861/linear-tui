@@ -378,6 +378,47 @@ func progressBar(done, total int) string {
 	return strings.Repeat("▰", filled) + strings.Repeat("▱", w-filled)
 }
 
+// priorityBar renders a horizontal stacked bar of the group's OPEN issues, colored
+// by priority (red/orange/yellow/green). Its length is proportional to the open
+// count (1 block ≈ 1 issue, scaled down past maxPriorityBar), so longer = more open
+// work. A trailing count gives the exact magnitude. Uses tview color tags.
+const maxPriorityBar = 48
+
+func priorityBar(r IssueRow, theme Theme) string {
+	open := r.OpenUrgent + r.OpenHigh + r.OpenMed + r.OpenLow
+	if open == 0 {
+		return "—"
+	}
+
+	// Scale block counts to fit maxPriorityBar while preserving proportions.
+	blocks := func(n int) int {
+		if n <= 0 {
+			return 0
+		}
+		if open <= maxPriorityBar {
+			return n
+		}
+		v := n * maxPriorityBar / open
+		if v == 0 {
+			v = 1 // never drop a non-empty priority entirely
+		}
+		return v
+	}
+	seg := func(c tcell.Color, n int) string {
+		b := blocks(n)
+		if b == 0 {
+			return ""
+		}
+		return colorTag(c) + strings.Repeat("█", b) + "[-]"
+	}
+
+	bar := seg(theme.PriorityUrgent, r.OpenUrgent) +
+		seg(theme.PriorityHigh, r.OpenHigh) +
+		seg(theme.PriorityMedium, r.OpenMed) +
+		seg(theme.PriorityLow, r.OpenLow)
+	return fmt.Sprintf("%s %d", bar, open)
+}
+
 // renderGroupHeaderRow renders a collapsible project/milestone header as a colored
 // band. The rollup is distributed across columns so a fully-collapsed list is
 // scannable: progress, current-cycle flag, open state counts, an urgent alarm, and
@@ -400,8 +441,9 @@ func renderGroupHeaderRow(table *tview.Table, row int, r IssueRow, theme Theme) 
 		label = fmt.Sprintf("  %s ◈ %s", chevron, r.GroupLabel)
 	}
 
-	// Column contents.
-	progress := fmt.Sprintf("%d/%d %s", r.GroupDone, r.GroupCount, progressBar(r.GroupDone, r.GroupCount))
+	// Column contents. Progress bar comes FIRST (fixed 10 wide) so bars align
+	// vertically and are comparable across rows; the ratio follows.
+	progress := fmt.Sprintf("%s %d/%d", progressBar(r.GroupDone, r.GroupCount), r.GroupDone, r.GroupCount)
 
 	cycleFlag := ""
 	if r.HasCurrentCycle {
@@ -420,19 +462,14 @@ func renderGroupHeaderRow(table *tview.Table, row int, r IssueRow, theme Theme) 
 		urgent = fmt.Sprintf("⚡%d", r.OpenUrgent)
 	}
 
-	// Color-tagged priority breakdown (table cells render tview color tags):
-	// Urgent=red, High=orange, Medium=yellow, Low=green. Milestone lines are
-	// indented so the breakdown reads as summarized under the project.
+	// Proportional, color-coded priority bar of OPEN issues (replaces U/H/M/L
+	// numbers). Milestone lines are indented so the bar reads as summarized
+	// under the project.
 	indent := ""
 	if r.Kind == RowMilestone {
 		indent = "  "
 	}
-	breakdown := fmt.Sprintf("%s%sU%d[-] %sH%d[-] %sM%d[-] %sL%d[-]",
-		indent,
-		colorTag(theme.PriorityUrgent), r.OpenUrgent,
-		colorTag(theme.PriorityHigh), r.OpenHigh,
-		colorTag(theme.PriorityMedium), r.OpenMed,
-		colorTag(theme.PriorityLow), r.OpenLow)
+	breakdown := indent + priorityBar(r, theme)
 
 	// Per-column foreground (band background is uniform).
 	set := func(col int, text string, fg tcell.Color) {
