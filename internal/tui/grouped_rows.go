@@ -90,6 +90,48 @@ func computeMilestoneSeq(group []*linearapi.Issue) map[string]int {
 	return rank
 }
 
+// groupRollup is the aggregate breakdown shown on a collapsed group header.
+type groupRollup struct {
+	count, done            int
+	urgent, high, med, low int
+	inProgress, todo       int
+	hasCurrentCycle        bool
+}
+
+// rollupOf aggregates a group's issues. Priority/state breakdowns count only OPEN
+// issues (not done/canceled); done is counted separately for the progress ratio.
+func rollupOf(members []*linearapi.Issue) groupRollup {
+	var r groupRollup
+	for _, is := range members {
+		r.count++
+		if is.InCurrentCycle {
+			r.hasCurrentCycle = true
+		}
+		if is.StateType == "completed" {
+			r.done++
+		}
+		if isClosed(is.StateType) {
+			continue
+		}
+		switch is.Priority {
+		case 1:
+			r.urgent++
+		case 2:
+			r.high++
+		case 3:
+			r.med++
+		default:
+			r.low++ // priority 4 (Low) and 0 (None)
+		}
+		if is.StateType == "started" {
+			r.inProgress++
+		} else {
+			r.todo++ // backlog / unstarted
+		}
+	}
+	return r
+}
+
 // BuildGroupedRows produces the milestone-grouped row model: a Project header,
 // then a Milestone header per milestone, then the issues in that milestone ordered
 // by dependency depth (Seq) and priority. Group headers are collapsible via
@@ -139,25 +181,28 @@ func BuildGroupedRows(issues []linearapi.Issue, collapsedGroups map[string]bool)
 	for _, pName := range projOrder {
 		pb := projMap[pName]
 
-		// Project rollup.
-		var pCount, pDone int
+		// Project rollup over all its issues.
+		var pMembers []*linearapi.Issue
 		for _, ms := range pb.msOrder {
-			for _, is := range pb.msIssues[ms] {
-				pCount++
-				if is.StateType == "completed" {
-					pDone++
-				}
-			}
+			pMembers = append(pMembers, pb.msIssues[ms]...)
 		}
+		pr := rollupOf(pMembers)
 		pKey := projectGroupKey(pName)
 		pCollapsed := collapsedGroups[pKey]
 		rows = append(rows, IssueRow{
-			Kind:       RowProject,
-			GroupKey:   pKey,
-			GroupLabel: pName,
-			GroupCount: pCount,
-			GroupDone:  pDone,
-			Collapsed:  pCollapsed,
+			Kind:            RowProject,
+			GroupKey:        pKey,
+			GroupLabel:      pName,
+			GroupCount:      pr.count,
+			GroupDone:       pr.done,
+			Collapsed:       pCollapsed,
+			OpenUrgent:      pr.urgent,
+			OpenHigh:        pr.high,
+			OpenMed:         pr.med,
+			OpenLow:         pr.low,
+			OpenInProgress:  pr.inProgress,
+			OpenTodo:        pr.todo,
+			HasCurrentCycle: pr.hasCurrentCycle,
 		})
 		if pCollapsed {
 			continue
@@ -188,22 +233,23 @@ func BuildGroupedRows(issues []linearapi.Issue, collapsedGroups map[string]bool)
 				rankCount[rank[is.ID]]++
 			}
 
-			var mCount, mDone int
-			for _, is := range group {
-				mCount++
-				if is.StateType == "completed" {
-					mDone++
-				}
-			}
+			mr := rollupOf(group)
 			mKey := milestoneGroupKey(pName, mName)
 			mCollapsed := collapsedGroups[mKey]
 			rows = append(rows, IssueRow{
-				Kind:       RowMilestone,
-				GroupKey:   mKey,
-				GroupLabel: mName,
-				GroupCount: mCount,
-				GroupDone:  mDone,
-				Collapsed:  mCollapsed,
+				Kind:            RowMilestone,
+				GroupKey:        mKey,
+				GroupLabel:      mName,
+				GroupCount:      mr.count,
+				GroupDone:       mr.done,
+				Collapsed:       mCollapsed,
+				OpenUrgent:      mr.urgent,
+				OpenHigh:        mr.high,
+				OpenMed:         mr.med,
+				OpenLow:         mr.low,
+				OpenInProgress:  mr.inProgress,
+				OpenTodo:        mr.todo,
+				HasCurrentCycle: mr.hasCurrentCycle,
 			})
 			if mCollapsed {
 				continue

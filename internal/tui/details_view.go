@@ -135,7 +135,7 @@ func buildDetailsHeader(issue *linearapi.Issue, tags ThemeTags, sectionGap int) 
 
 	// Milestone
 	if issue.MilestoneName != "" {
-		headerLines = append(headerLines, fmt.Sprintf("%sMilestone:[-]  %s%s[-]", keyColor, accentColor, issue.MilestoneName))
+		headerLines = append(headerLines, fmt.Sprintf("%sMilestone:[-]  %s%s[-]", keyColor, tags.Milestone, issue.MilestoneName))
 	}
 
 	// Cycle
@@ -272,7 +272,7 @@ func buildGroupDetailsText(r IssueRow, issues []linearapi.Issue, tags ThemeTags)
 	} else if p, m, ok := parseMilestoneKey(r.GroupKey); ok {
 		isMilestone = true
 		projName, msName = p, m
-		titleLine = fmt.Sprintf("%s◈ %s[-]", accentColor, m)
+		titleLine = fmt.Sprintf("%s◈ %s[-]", tags.Milestone, m)
 		scope = func(is linearapi.Issue) bool {
 			pn := is.ProjectName
 			if pn == "" {

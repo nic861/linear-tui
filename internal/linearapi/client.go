@@ -23,6 +23,36 @@ func parseTime(s string) time.Time {
 	return t
 }
 
+// nowInCycle reports whether the current time falls within [startsAt, endsAt].
+// Either bound being empty/unparseable yields false.
+func nowInCycle(startsAt, endsAt string) bool {
+	if startsAt == "" || endsAt == "" {
+		return false
+	}
+	start, err1 := time.Parse(time.RFC3339, startsAt)
+	end, err2 := time.Parse(time.RFC3339, endsAt)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	now := time.Now()
+	return !now.Before(start) && !now.After(end)
+}
+
+// derefReflectString returns the string value of a reflected *graphql.String
+// (or string) field, or "" if the field is invalid/nil.
+func derefReflectString(v reflect.Value) string {
+	if !v.IsValid() {
+		return ""
+	}
+	if v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return ""
+		}
+		return v.Elem().String()
+	}
+	return v.String()
+}
+
 // IssueFilter is a custom scalar type for Linear's IssueFilter input.
 // It allows passing complex filter objects to the GraphQL API.
 type IssueFilter map[string]interface{}
@@ -211,6 +241,7 @@ type Issue struct {
 	ProjectID      string
 	ProjectName    string
 	CycleName      string // Current cycle name (e.g. "Cycle 3")
+	InCurrentCycle bool   // True if the issue's cycle is active right now (now within its start/end)
 	MilestoneName  string // Project milestone name (e.g. "v0.9 — Live Board"); "" if none
 	MilestoneID    string // Project milestone ID; "" if none
 	InitiativeName string // First initiative name (via project)
@@ -688,8 +719,10 @@ func (c *Client) searchIssuesPage(ctx context.Context, params FetchIssuesParams,
 					Name graphql.String
 				}
 				Cycle *struct {
-					Name   graphql.String
-					Number graphql.Float
+					Name     graphql.String
+					Number   graphql.Float
+					StartsAt *graphql.String
+					EndsAt   *graphql.String
 				}
 				ProjectMilestone *struct {
 					ID   graphql.String
@@ -883,8 +916,10 @@ func (c *Client) fetchIssuesWithFilterPage(ctx context.Context, params FetchIssu
 					Name graphql.String
 				}
 				Cycle *struct {
-					Name   graphql.String
-					Number graphql.Float
+					Name     graphql.String
+					Number   graphql.Float
+					StartsAt *graphql.String
+					EndsAt   *graphql.String
 				}
 				ProjectMilestone *struct {
 					ID   graphql.String
@@ -1051,16 +1086,21 @@ func (c *Client) parseIssueNode(node interface{}) Issue {
 	}
 
 	cycleName := ""
+	inCurrentCycle := false
 	cycleField := v.FieldByName("Cycle")
 	if cycleField.IsValid() && !cycleField.IsNil() {
-		cycleName = cycleField.Elem().FieldByName("Name").String()
+		cycle := cycleField.Elem()
+		cycleName = cycle.FieldByName("Name").String()
 		if cycleName == "" {
 			// Cycle has no name set — fall back to "Cycle N"
-			number := int(cycleField.Elem().FieldByName("Number").Float())
+			number := int(cycle.FieldByName("Number").Float())
 			if number > 0 {
 				cycleName = fmt.Sprintf("Cycle %d", number)
 			}
 		}
+		startStr := derefReflectString(cycle.FieldByName("StartsAt"))
+		endStr := derefReflectString(cycle.FieldByName("EndsAt"))
+		inCurrentCycle = nowInCycle(startStr, endStr)
 	}
 
 	milestoneName := ""
@@ -1117,31 +1157,32 @@ func (c *Client) parseIssueNode(node interface{}) Issue {
 	blockedBy := parseRelationRefs(v.FieldByName("InverseRelations").FieldByName("Nodes"), "Issue")
 
 	return Issue{
-		ID:            id,
-		Identifier:    identifier,
-		Title:         title,
-		State:         stateName,
-		StateID:       stateID,
-		StateType:     stateType,
-		Assignee:      assignee,
-		AssigneeID:    assigneeID,
-		Priority:      priority,
-		UpdatedAt:     updatedAt,
-		CreatedAt:     createdAt,
-		Description:   description,
-		TeamID:        teamID,
-		ProjectID:     projectID,
-		ProjectName:   projectName,
-		CycleName:     cycleName,
-		MilestoneName: milestoneName,
-		MilestoneID:   milestoneID,
-		URL:           url,
-		Archived:      archived,
-		Labels:        labels,
-		Parent:        parent,
-		Children:      children,
-		BlockedBy:     blockedBy,
-		Blocks:        blocks,
+		ID:             id,
+		Identifier:     identifier,
+		Title:          title,
+		State:          stateName,
+		StateID:        stateID,
+		StateType:      stateType,
+		Assignee:       assignee,
+		AssigneeID:     assigneeID,
+		Priority:       priority,
+		UpdatedAt:      updatedAt,
+		CreatedAt:      createdAt,
+		Description:    description,
+		TeamID:         teamID,
+		ProjectID:      projectID,
+		ProjectName:    projectName,
+		CycleName:      cycleName,
+		InCurrentCycle: inCurrentCycle,
+		MilestoneName:  milestoneName,
+		MilestoneID:    milestoneID,
+		URL:            url,
+		Archived:       archived,
+		Labels:         labels,
+		Parent:         parent,
+		Children:       children,
+		BlockedBy:      blockedBy,
+		Blocks:         blocks,
 	}
 }
 
@@ -1190,8 +1231,10 @@ func (c *Client) FetchIssueByID(ctx context.Context, id string) (Issue, error) {
 				Name graphql.String
 			}
 			Cycle *struct {
-				Name   graphql.String
-				Number graphql.Float
+				Name     graphql.String
+				Number   graphql.Float
+				StartsAt *graphql.String
+				EndsAt   *graphql.String
 			}
 			ProjectMilestone *struct {
 				ID   graphql.String
@@ -1301,6 +1344,7 @@ func (c *Client) FetchIssueByID(ctx context.Context, id string) (Issue, error) {
 	}
 
 	cycleName := ""
+	inCurrentCycle := false
 	if query.Issue.Cycle != nil {
 		cycleName = string(query.Issue.Cycle.Name)
 		if cycleName == "" {
@@ -1310,6 +1354,15 @@ func (c *Client) FetchIssueByID(ctx context.Context, id string) (Issue, error) {
 				cycleName = fmt.Sprintf("Cycle %d", number)
 			}
 		}
+		startStr := ""
+		endStr := ""
+		if query.Issue.Cycle.StartsAt != nil {
+			startStr = string(*query.Issue.Cycle.StartsAt)
+		}
+		if query.Issue.Cycle.EndsAt != nil {
+			endStr = string(*query.Issue.Cycle.EndsAt)
+		}
+		inCurrentCycle = nowInCycle(startStr, endStr)
 	}
 
 	milestoneName := ""
@@ -1379,32 +1432,33 @@ func (c *Client) FetchIssueByID(ctx context.Context, id string) (Issue, error) {
 	blockedBy := parseRelationRefs(issueValue.FieldByName("InverseRelations").FieldByName("Nodes"), "Issue")
 
 	return Issue{
-		ID:            string(query.Issue.ID),
-		Identifier:    string(query.Issue.Identifier),
-		Title:         string(query.Issue.Title),
-		State:         string(query.Issue.State.Name),
-		StateID:       string(query.Issue.State.ID),
-		StateType:     string(query.Issue.State.Type),
-		Assignee:      assignee,
-		AssigneeID:    assigneeID,
-		Priority:      int(query.Issue.Priority),
-		UpdatedAt:     updatedAt,
-		CreatedAt:     createdAt,
-		Description:   description,
-		TeamID:        string(query.Issue.Team.ID),
-		ProjectID:     projectID,
-		ProjectName:   projectName,
-		CycleName:     cycleName,
-		MilestoneName: milestoneName,
-		MilestoneID:   milestoneID,
-		URL:           string(query.Issue.URL),
-		Archived:      archived,
-		Labels:        labels,
-		Parent:        parent,
-		Children:      children,
-		BlockedBy:     blockedBy,
-		Blocks:        blocks,
-		Comments:      comments,
+		ID:             string(query.Issue.ID),
+		Identifier:     string(query.Issue.Identifier),
+		Title:          string(query.Issue.Title),
+		State:          string(query.Issue.State.Name),
+		StateID:        string(query.Issue.State.ID),
+		StateType:      string(query.Issue.State.Type),
+		Assignee:       assignee,
+		AssigneeID:     assigneeID,
+		Priority:       int(query.Issue.Priority),
+		UpdatedAt:      updatedAt,
+		CreatedAt:      createdAt,
+		Description:    description,
+		TeamID:         string(query.Issue.Team.ID),
+		ProjectID:      projectID,
+		ProjectName:    projectName,
+		CycleName:      cycleName,
+		InCurrentCycle: inCurrentCycle,
+		MilestoneName:  milestoneName,
+		MilestoneID:    milestoneID,
+		URL:            string(query.Issue.URL),
+		Archived:       archived,
+		Labels:         labels,
+		Parent:         parent,
+		Children:       children,
+		BlockedBy:      blockedBy,
+		Blocks:         blocks,
+		Comments:       comments,
 	}, nil
 }
 

@@ -33,6 +33,15 @@ type IssueRow struct {
 	GroupDone  int    // number of completed issues in the group
 	Collapsed  bool   // whether the group is collapsed
 
+	// Group-header rollup (open = not done/canceled), for scanning collapsed lists.
+	OpenUrgent      int  // priority 1
+	OpenHigh        int  // priority 2
+	OpenMed         int  // priority 3
+	OpenLow         int  // priority 4 (and no-priority)
+	OpenInProgress  int  // started state
+	OpenTodo        int  // backlog/unstarted
+	HasCurrentCycle bool // any issue in the group is in the active cycle
+
 	// Sequence fields (RowIssue in grouped/milestone mode only).
 	Seq         int  // dependency depth within the milestone (0 = not applicable)
 	SeqParallel bool // shares its rank with a sibling (no ordering constraint between them)

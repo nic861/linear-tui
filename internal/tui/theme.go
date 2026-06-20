@@ -19,6 +19,7 @@ type Theme struct {
 	HeaderText    tcell.Color
 	SecondaryText tcell.Color
 	Accent        tcell.Color
+	Milestone     tcell.Color // bright, high-visibility color for milestone labels
 	InputBg       tcell.Color
 
 	// Status Colors
@@ -41,6 +42,7 @@ var LinearTheme = Theme{
 	HeaderText:    tcell.NewRGBColor(160, 160, 160), // #A0A0A0
 	SecondaryText: tcell.NewRGBColor(120, 120, 120), // #787878
 	Accent:        tcell.NewRGBColor(94, 106, 210),  // #5E6AD2
+	Milestone:     tcell.NewRGBColor(255, 165, 0),   // #FFA500 bright orange
 	InputBg:       tcell.ColorDarkGray,
 
 	StatusTodo:       tcell.NewRGBColor(140, 140, 140), // Gray
@@ -62,6 +64,7 @@ var HighContrastTheme = Theme{
 	HeaderText:    tcell.NewRGBColor(255, 255, 255), // #FFFFFF
 	SecondaryText: tcell.NewRGBColor(200, 200, 200), // #C8C8C8
 	Accent:        tcell.NewRGBColor(255, 255, 0),   // #FFFF00
+	Milestone:     tcell.NewRGBColor(255, 165, 0),   // #FFA500 bright orange
 	InputBg:       tcell.NewRGBColor(30, 30, 30),    // #1E1E1E
 
 	StatusTodo:       tcell.NewRGBColor(255, 255, 255), // White
@@ -83,6 +86,7 @@ var ColorBlindTheme = Theme{
 	HeaderText:    tcell.NewRGBColor(207, 207, 207), // #CFCFCF
 	SecondaryText: tcell.NewRGBColor(154, 154, 154), // #9A9A9A
 	Accent:        tcell.NewRGBColor(0, 114, 178),   // #0072B2
+	Milestone:     tcell.NewRGBColor(230, 159, 0),   // #E69F00 Okabe-Ito orange (colorblind-safe)
 	InputBg:       tcell.NewRGBColor(42, 42, 42),    // #2A2A2A
 
 	StatusTodo:       tcell.NewRGBColor(153, 153, 153), // Gray
@@ -98,6 +102,7 @@ type ThemeTags struct {
 	SecondaryText string
 	HeaderText    string
 	Accent        string
+	Milestone     string
 	Border        string
 	Warning       string
 	Error         string
@@ -125,6 +130,7 @@ func NewThemeTags(theme Theme) ThemeTags {
 		SecondaryText: colorTag(theme.SecondaryText),
 		HeaderText:    colorTag(theme.HeaderText),
 		Accent:        colorTag(theme.Accent),
+		Milestone:     colorTag(theme.Milestone),
 		Border:        colorTag(theme.Border),
 		Warning:       colorTag(theme.StatusInProgress),
 		Error:         colorTag(theme.StatusCanceled),

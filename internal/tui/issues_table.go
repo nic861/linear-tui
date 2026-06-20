@@ -338,7 +338,7 @@ func (a *App) setupIssuesTableNavigation(table *tview.Table) {
 	})
 }
 
-// Column indices for the issues table.
+// Column indices for the flat (non-grouped) issues table.
 const (
 	colProject   = 0
 	colMilestone = 1
@@ -347,6 +347,17 @@ const (
 	colState     = 4
 	colPriority  = 5
 	colTitle     = 6
+)
+
+// Column indices for the grouped (milestone) view. Project and Milestone share the
+// leftmost column (nested), reclaiming the horizontal space of a second name column.
+const (
+	gName     = 0 // nested project/milestone name (header) — blank for issues
+	gID       = 1 // Seq + ID (issue) — progress bar (header)
+	gCycle    = 2 // cycle (issue) — current-cycle flag (header)
+	gState    = 3 // state (issue) — open in-progress/todo counts (header)
+	gPriority = 4 // priority (issue) — urgent alarm count (header)
+	gTitle    = 5 // title (issue) — open priority breakdown (header)
 )
 
 // progressBar renders a 10-cell filled/empty bar for a done/total ratio.
@@ -365,83 +376,67 @@ func progressBar(done, total int) string {
 	return strings.Repeat("▰", filled) + strings.Repeat("▱", w-filled)
 }
 
-// renderGroupHeaderRow renders a collapsible project/milestone header as a colored band.
+// renderGroupHeaderRow renders a collapsible project/milestone header as a colored
+// band. The rollup is distributed across columns so a fully-collapsed list is
+// scannable: progress, current-cycle flag, open state counts, an urgent alarm, and
+// the open priority breakdown — each in a consistent column position.
 func renderGroupHeaderRow(table *tview.Table, row int, r IssueRow, theme Theme) {
 	chevron := "▾"
 	if r.Collapsed {
 		chevron = "▸"
 	}
 
-	var bandBg, labelFg tcell.Color
-	var labelCol int
-	var label, rollup string
-
+	var bandBg, nameFg tcell.Color
+	var label string
 	if r.Kind == RowProject {
 		bandBg = theme.HeaderBg
-		labelFg = theme.Foreground
-		labelCol = colProject
+		nameFg = theme.Foreground
 		label = fmt.Sprintf("%s ▦ %s", chevron, r.GroupLabel)
-		active := r.GroupCount - r.GroupDone
-		rollup = fmt.Sprintf("%d active · %d/%d done", active, r.GroupDone, r.GroupCount)
 	} else {
 		bandBg = theme.SelectionBg
-		labelFg = theme.Accent
-		labelCol = colMilestone
-		label = fmt.Sprintf("%s ◈ %s", chevron, r.GroupLabel)
-		rollup = fmt.Sprintf("%d/%d done  %s", r.GroupDone, r.GroupCount, progressBar(r.GroupDone, r.GroupCount))
+		nameFg = theme.Milestone // bright (orange) for visibility
+		label = fmt.Sprintf("  %s ◈ %s", chevron, r.GroupLabel)
 	}
 
-	// Paint the whole row as a band: every column gets the background color.
-	for col := colProject; col <= colTitle; col++ {
-		text := ""
-		fg := labelFg
-		switch col {
-		case labelCol:
-			text = label
-		case colTitle:
-			text = rollup
-			fg = theme.SecondaryText
-		}
+	// Column contents.
+	progress := fmt.Sprintf("%d/%d %s", r.GroupDone, r.GroupCount, progressBar(r.GroupDone, r.GroupCount))
+
+	cycleFlag := ""
+	if r.HasCurrentCycle {
+		cycleFlag = "◴ cycle"
+	}
+
+	stateCounts := ""
+	if r.OpenInProgress > 0 || r.OpenTodo > 0 {
+		stateCounts = fmt.Sprintf("◐%d ○%d", r.OpenInProgress, r.OpenTodo)
+	} else if r.GroupCount > 0 && r.GroupDone == r.GroupCount {
+		stateCounts = "✓"
+	}
+
+	urgent := ""
+	if r.OpenUrgent > 0 {
+		urgent = fmt.Sprintf("⚡%d", r.OpenUrgent)
+	}
+
+	breakdown := fmt.Sprintf("U%d H%d M%d L%d", r.OpenUrgent, r.OpenHigh, r.OpenMed, r.OpenLow)
+
+	// Per-column foreground (band background is uniform).
+	set := func(col int, text string, fg tcell.Color) {
 		table.SetCell(row, col, tview.NewTableCell(text).
 			SetTextColor(fg).
 			SetBackgroundColor(bandBg).
 			SetAlign(tview.AlignLeft))
 	}
+	set(gName, label, nameFg)
+	set(gID, progress, nameFg)
+	set(gCycle, cycleFlag, theme.StatusInProgress) // bright/yellow = active now
+	set(gState, stateCounts, theme.SecondaryText)
+	set(gPriority, urgent, theme.StatusCanceled) // red alarm
+	set(gTitle, breakdown, theme.SecondaryText)
 }
 
-// renderIssueCells renders the per-issue cells. In grouped mode the Project and
-// Milestone columns are left blank (the headers carry them) and the Seq is prefixed
-// onto the ID column; otherwise Project and Milestone columns are populated.
-func renderIssueCells(table *tview.Table, row int, issue *linearapi.Issue, issueRow IssueRow, theme Theme, grouped bool) {
-	// ID (with sub-issue tree prefix, plus Seq prefix in grouped mode).
-	if grouped {
-		idColor := theme.SecondaryText
-		if isBlocked(issue) {
-			idColor = theme.StatusBlocked
-		}
-		idText := fmt.Sprintf("%3s %s", seqLabel(issueRow), issue.Identifier)
-		table.SetCell(row, colID, tview.NewTableCell(idText).
-			SetTextColor(idColor).
-			SetAlign(tview.AlignLeft))
-	} else {
-		table.SetCell(row, colID, renderIdentifierCell(issue, theme, issueRow))
-	}
-
-	// Cycle
-	cycleName := issue.CycleName
-	cycleColor := theme.Foreground
-	if cycleName == "" {
-		cycleName = "-"
-		cycleColor = theme.SecondaryText
-	}
-	if len(cycleName) > 16 {
-		cycleName = cycleName[:16]
-	}
-	table.SetCell(row, colCycle, tview.NewTableCell(cycleName).
-		SetTextColor(cycleColor).
-		SetAlign(tview.AlignLeft))
-
-	// State with color based on state
+// stateCell builds the icon+name state cell shared by both views.
+func stateCell(issue *linearapi.Issue, theme Theme) *tview.TableCell {
 	state := issue.State
 	var stateColor tcell.Color
 	var stateIcon string
@@ -465,50 +460,91 @@ func renderIssueCells(table *tview.Table, row int, issue *linearapi.Issue, issue
 	if len(state) > 12 {
 		state = state[:12]
 	}
-
-	table.SetCell(row, colState, tview.NewTableCell(stateIcon+" "+state).
+	return tview.NewTableCell(stateIcon + " " + state).
 		SetTextColor(stateColor).
+		SetAlign(tview.AlignLeft)
+}
+
+// cycleCell builds the cycle-name cell shared by both views.
+func cycleCell(issue *linearapi.Issue, theme Theme) *tview.TableCell {
+	cycleName := issue.CycleName
+	cycleColor := theme.Foreground
+	if cycleName == "" {
+		cycleName = "-"
+		cycleColor = theme.SecondaryText
+	}
+	if len(cycleName) > 16 {
+		cycleName = cycleName[:16]
+	}
+	return tview.NewTableCell(cycleName).
+		SetTextColor(cycleColor).
+		SetAlign(tview.AlignLeft)
+}
+
+// renderGroupedIssueCells renders an issue row in the grouped view: name column is
+// blank (the header carries it), Seq is prefixed onto the ID.
+func renderGroupedIssueCells(table *tview.Table, row int, issue *linearapi.Issue, issueRow IssueRow, theme Theme) {
+	table.SetCell(row, gName, tview.NewTableCell("").SetAlign(tview.AlignLeft))
+
+	idColor := theme.SecondaryText
+	if isBlocked(issue) {
+		idColor = theme.StatusBlocked
+	}
+	idText := fmt.Sprintf("%3s %s", seqLabel(issueRow), issue.Identifier)
+	table.SetCell(row, gID, tview.NewTableCell(idText).
+		SetTextColor(idColor).
 		SetAlign(tview.AlignLeft))
 
-	// Priority
+	table.SetCell(row, gCycle, cycleCell(issue, theme))
+	table.SetCell(row, gState, stateCell(issue, theme))
+
+	priorityText, priorityColor := formatPriority(issue.Priority, theme)
+	table.SetCell(row, gPriority, tview.NewTableCell(priorityText).
+		SetTextColor(priorityColor).
+		SetAlign(tview.AlignLeft))
+
+	table.SetCell(row, gTitle, tview.NewTableCell(issue.Title).
+		SetTextColor(theme.Foreground).
+		SetAlign(tview.AlignLeft))
+}
+
+// renderIssueCells renders an issue row in the flat (non-grouped) view.
+func renderIssueCells(table *tview.Table, row int, issue *linearapi.Issue, issueRow IssueRow, theme Theme) {
+	table.SetCell(row, colID, renderIdentifierCell(issue, theme, issueRow))
+	table.SetCell(row, colCycle, cycleCell(issue, theme))
+	table.SetCell(row, colState, stateCell(issue, theme))
+
 	priorityText, priorityColor := formatPriority(issue.Priority, theme)
 	table.SetCell(row, colPriority, tview.NewTableCell(priorityText).
 		SetTextColor(priorityColor).
 		SetAlign(tview.AlignLeft))
 
-	// Project + Milestone (only in the flat view; the grouped view uses headers).
-	if grouped {
-		table.SetCell(row, colProject, tview.NewTableCell("").SetAlign(tview.AlignLeft))
-		table.SetCell(row, colMilestone, tview.NewTableCell("").SetAlign(tview.AlignLeft))
-	} else {
-		project := issue.ProjectName
-		projectColor := theme.Foreground
-		if project == "" {
-			project = "-"
-			projectColor = theme.SecondaryText
-		}
-		if len(project) > 20 {
-			project = project[:20]
-		}
-		table.SetCell(row, colProject, tview.NewTableCell(project).
-			SetTextColor(projectColor).
-			SetAlign(tview.AlignLeft))
-
-		milestone := issue.MilestoneName
-		milestoneColor := theme.Accent
-		if milestone == "" {
-			milestone = "-"
-			milestoneColor = theme.SecondaryText
-		}
-		if len(milestone) > 20 {
-			milestone = milestone[:20]
-		}
-		table.SetCell(row, colMilestone, tview.NewTableCell(milestone).
-			SetTextColor(milestoneColor).
-			SetAlign(tview.AlignLeft))
+	project := issue.ProjectName
+	projectColor := theme.Foreground
+	if project == "" {
+		project = "-"
+		projectColor = theme.SecondaryText
 	}
+	if len(project) > 20 {
+		project = project[:20]
+	}
+	table.SetCell(row, colProject, tview.NewTableCell(project).
+		SetTextColor(projectColor).
+		SetAlign(tview.AlignLeft))
 
-	// Title
+	milestone := issue.MilestoneName
+	milestoneColor := theme.Milestone
+	if milestone == "" {
+		milestone = "-"
+		milestoneColor = theme.SecondaryText
+	}
+	if len(milestone) > 20 {
+		milestone = milestone[:20]
+	}
+	table.SetCell(row, colMilestone, tview.NewTableCell(milestone).
+		SetTextColor(milestoneColor).
+		SetAlign(tview.AlignLeft))
+
 	table.SetCell(row, colTitle, tview.NewTableCell(issue.Title).
 		SetTextColor(theme.Foreground).
 		SetAlign(tview.AlignLeft))
@@ -525,46 +561,31 @@ func renderIssuesTableModel(table *tview.Table, rows []IssueRow, idToIssue map[s
 		Background(theme.HeaderBg).
 		Bold(true)
 
-	col0Label := "Project"
-	if grouped {
-		col0Label = "Seq / Project"
+	setHeader := func(col int, label string, expansion int) {
+		table.SetCell(0, col, tview.NewTableCell(label).
+			SetStyle(headerStyle).
+			SetAlign(tview.AlignLeft).
+			SetSelectable(false).
+			SetExpansion(expansion))
 	}
 
-	table.SetCell(0, colProject, tview.NewTableCell(col0Label).
-		SetStyle(headerStyle).
-		SetAlign(tview.AlignLeft).
-		SetSelectable(false).
-		SetExpansion(2))
-	table.SetCell(0, colMilestone, tview.NewTableCell("Milestone").
-		SetStyle(headerStyle).
-		SetAlign(tview.AlignLeft).
-		SetSelectable(false).
-		SetExpansion(2))
-	table.SetCell(0, colID, tview.NewTableCell(" ID").
-		SetStyle(headerStyle).
-		SetAlign(tview.AlignLeft).
-		SetSelectable(false).
-		SetExpansion(1))
-	table.SetCell(0, colCycle, tview.NewTableCell("Cycle").
-		SetStyle(headerStyle).
-		SetAlign(tview.AlignLeft).
-		SetSelectable(false).
-		SetExpansion(1))
-	table.SetCell(0, colState, tview.NewTableCell("State").
-		SetStyle(headerStyle).
-		SetAlign(tview.AlignLeft).
-		SetSelectable(false).
-		SetExpansion(1))
-	table.SetCell(0, colPriority, tview.NewTableCell("Priority").
-		SetStyle(headerStyle).
-		SetAlign(tview.AlignLeft).
-		SetSelectable(false).
-		SetExpansion(1))
-	table.SetCell(0, colTitle, tview.NewTableCell("Title").
-		SetStyle(headerStyle).
-		SetAlign(tview.AlignLeft).
-		SetSelectable(false).
-		SetExpansion(6))
+	if grouped {
+		// Grouped: Project & Milestone share the leftmost column; Seq prefixes the ID.
+		setHeader(gName, "Project / Milestone", 3)
+		setHeader(gID, "Seq / ID", 2)
+		setHeader(gCycle, "Cycle", 1)
+		setHeader(gState, "State", 1)
+		setHeader(gPriority, "Priority", 1)
+		setHeader(gTitle, "Title", 6)
+	} else {
+		setHeader(colProject, "Project", 2)
+		setHeader(colMilestone, "Milestone", 2)
+		setHeader(colID, " ID", 1)
+		setHeader(colCycle, "Cycle", 1)
+		setHeader(colState, "State", 1)
+		setHeader(colPriority, "Priority", 1)
+		setHeader(colTitle, "Title", 6)
+	}
 
 	// Add rows: group headers (grouped mode) or issues.
 	for i, issueRow := range rows {
@@ -579,7 +600,11 @@ func renderIssuesTableModel(table *tview.Table, rows []IssueRow, idToIssue map[s
 		if !ok || issue == nil {
 			continue
 		}
-		renderIssueCells(table, row, issue, issueRow, theme, grouped)
+		if grouped {
+			renderGroupedIssueCells(table, row, issue, issueRow, theme)
+		} else {
+			renderIssueCells(table, row, issue, issueRow, theme)
+		}
 	}
 
 	// Select the specified issue or first row

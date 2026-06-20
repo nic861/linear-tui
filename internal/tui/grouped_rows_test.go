@@ -101,6 +101,29 @@ func TestBuildGroupedRows_HeadersAndSeq(t *testing.T) {
 	}
 }
 
+func TestRollupOf_BreakdownAndCycle(t *testing.T) {
+	members := []*linearapi.Issue{
+		{StateType: "completed", Priority: 2},
+		{StateType: "started", Priority: 1},                       // open urgent, in-progress
+		{StateType: "backlog", Priority: 2, InCurrentCycle: true}, // open high, todo, in cycle
+		{StateType: "backlog", Priority: 3},                       // open med, todo
+		{StateType: "canceled", Priority: 1},                      // closed — excluded from breakdown
+	}
+	r := rollupOf(members)
+	if r.count != 5 || r.done != 1 {
+		t.Errorf("count/done = %d/%d, want 5/1", r.count, r.done)
+	}
+	if r.urgent != 1 || r.high != 1 || r.med != 1 || r.low != 0 {
+		t.Errorf("priority breakdown = U%d H%d M%d L%d, want U1 H1 M1 L0", r.urgent, r.high, r.med, r.low)
+	}
+	if r.inProgress != 1 || r.todo != 2 {
+		t.Errorf("state breakdown = ◐%d ○%d, want ◐1 ○2", r.inProgress, r.todo)
+	}
+	if !r.hasCurrentCycle {
+		t.Error("hasCurrentCycle = false, want true")
+	}
+}
+
 func TestBuildGroupedRows_CollapseHidesChildren(t *testing.T) {
 	issues := []linearapi.Issue{
 		{ID: "390", Identifier: "EFF-390", ProjectName: "Dory Q&A", MilestoneName: "v0.9", StateType: "completed"},
