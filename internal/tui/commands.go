@@ -185,14 +185,16 @@ func DefaultCommands(app *App) []Command {
 		},
 		{
 			ID:           "cycle_sort",
-			Title:        "Sort mode (project → milestone → cycle → status → priority)",
-			Keywords:     []string{"sort", "milestone", "cycle", "project", "status", "priority"},
+			Title:        "Sort mode (project → milestone → label → cycle → status → priority)",
+			Keywords:     []string{"sort", "milestone", "label", "cycle", "project", "status", "priority"},
 			ShortcutRune: 's',
 			Run: func(a *App) {
 				switch a.sortField {
 				case SortByProjectStatus:
 					a.setSortField(SortByMilestone)
 				case SortByMilestone:
+					a.setSortField(SortByLabel)
+				case SortByLabel:
 					a.setSortField(SortByStatusPriority)
 				case SortByStatusPriority:
 					a.setSortField(SortByCycle)

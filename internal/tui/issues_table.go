@@ -170,7 +170,7 @@ func (a *App) buildIssuesTable(title string) *tview.Table {
 	// Handle selection (Enter to open details or toggle expand)
 	table.SetSelectedFunc(func(row, _ int) {
 		// Group header: toggle collapse.
-		if r := a.rowModelAt(row); r != nil && (r.Kind == RowProject || r.Kind == RowMilestone) {
+		if r := a.rowModelAt(row); r != nil && (r.IsGroupHeader()) {
 			a.toggleGroupCollapse(r.GroupKey)
 			return
 		}
@@ -195,7 +195,7 @@ func (a *App) buildIssuesTable(title string) *tview.Table {
 	// Show the group panel when a header row becomes selected (issues are handled
 	// by the navigation handlers, which fetch + render the issue details).
 	table.SetSelectionChangedFunc(func(row, _ int) {
-		if r := a.rowModelAt(row); r != nil && (r.Kind == RowProject || r.Kind == RowMilestone) {
+		if r := a.rowModelAt(row); r != nil && (r.IsGroupHeader()) {
 			a.showGroupDetails(*r)
 		}
 	})
@@ -248,7 +248,7 @@ func (a *App) setupIssuesTableNavigation(table *tview.Table) {
 			case 'l':
 				// Expand current parent issue, or uncollapse a group header.
 				row, _ := table.GetSelection()
-				if r := a.rowModelAt(row); r != nil && (r.Kind == RowProject || r.Kind == RowMilestone) {
+				if r := a.rowModelAt(row); r != nil && (r.IsGroupHeader()) {
 					if r.Collapsed {
 						a.toggleGroupCollapse(r.GroupKey)
 					}
@@ -263,7 +263,7 @@ func (a *App) setupIssuesTableNavigation(table *tview.Table) {
 			case 'h':
 				// Collapse current parent issue/group, or go to parent if on child.
 				row, _ := table.GetSelection()
-				if r := a.rowModelAt(row); r != nil && (r.Kind == RowProject || r.Kind == RowMilestone) {
+				if r := a.rowModelAt(row); r != nil && (r.IsGroupHeader()) {
 					if !r.Collapsed {
 						a.toggleGroupCollapse(r.GroupKey)
 					}
@@ -286,7 +286,7 @@ func (a *App) setupIssuesTableNavigation(table *tview.Table) {
 			case ' ':
 				// Space toggles expand/collapse (issue sub-tree or group header).
 				row, _ := table.GetSelection()
-				if r := a.rowModelAt(row); r != nil && (r.Kind == RowProject || r.Kind == RowMilestone) {
+				if r := a.rowModelAt(row); r != nil && (r.IsGroupHeader()) {
 					a.toggleGroupCollapse(r.GroupKey)
 					return nil
 				}
@@ -299,7 +299,7 @@ func (a *App) setupIssuesTableNavigation(table *tview.Table) {
 			}
 		case tcell.KeyEnter:
 			row, _ := table.GetSelection()
-			if r := a.rowModelAt(row); r != nil && (r.Kind == RowProject || r.Kind == RowMilestone) {
+			if r := a.rowModelAt(row); r != nil && (r.IsGroupHeader()) {
 				a.toggleGroupCollapse(r.GroupKey)
 				return nil
 			}
@@ -465,11 +465,16 @@ func renderGroupHeaderRow(table *tview.Table, row int, r IssueRow, theme Theme) 
 
 	var bandBg, nameFg tcell.Color
 	var label string
-	if r.Kind == RowProject {
+	switch r.Kind {
+	case RowProject:
 		bandBg = theme.HeaderBg
 		nameFg = theme.Foreground
 		label = fmt.Sprintf("%s ▦ %s", chevron, r.GroupLabel)
-	} else {
+	case RowLabel:
+		bandBg = theme.HeaderBg
+		nameFg = theme.Accent
+		label = fmt.Sprintf("%s # %s", chevron, r.GroupLabel)
+	default: // RowMilestone
 		bandBg = theme.SelectionBg
 		nameFg = theme.Milestone // bright (orange) for visibility
 		label = fmt.Sprintf("  %s ◈ %s", chevron, r.GroupLabel)
@@ -653,8 +658,9 @@ func renderIssuesTableModel(table *tview.Table, rows []IssueRow, idToIssue map[s
 	}
 
 	if grouped {
-		// Grouped: Project & Milestone share the leftmost column; Seq prefixes the ID.
-		setHeader(gName, "Project / Milestone", 3)
+		// Grouped: the group name (project/milestone or label) shares the leftmost
+		// column; Seq prefixes the ID.
+		setHeader(gName, "Group", 3)
 		setHeader(gID, "Seq / ID", 2)
 		setHeader(gCycle, "Cycle", 1)
 		setHeader(gState, "State", 1)
@@ -674,7 +680,7 @@ func renderIssuesTableModel(table *tview.Table, rows []IssueRow, idToIssue map[s
 	for i, issueRow := range rows {
 		row := i + 1
 
-		if issueRow.Kind == RowProject || issueRow.Kind == RowMilestone {
+		if issueRow.IsGroupHeader() {
 			renderGroupHeaderRow(table, row, issueRow, theme)
 			continue
 		}

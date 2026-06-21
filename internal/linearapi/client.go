@@ -715,8 +715,11 @@ func (c *Client) searchIssuesPage(ctx context.Context, params FetchIssuesParams,
 					ID graphql.String
 				}
 				Project *struct {
-					ID   graphql.String
-					Name graphql.String
+					ID     graphql.String
+					Name   graphql.String
+					Status *struct {
+						Type graphql.String
+					}
 				}
 				Cycle *struct {
 					Name     graphql.String
@@ -912,8 +915,11 @@ func (c *Client) fetchIssuesWithFilterPage(ctx context.Context, params FetchIssu
 					ID graphql.String
 				}
 				Project *struct {
-					ID   graphql.String
-					Name graphql.String
+					ID     graphql.String
+					Name   graphql.String
+					Status *struct {
+						Type graphql.String
+					}
 				}
 				Cycle *struct {
 					Name     graphql.String
@@ -1083,6 +1089,14 @@ func (c *Client) parseIssueNode(node interface{}) Issue {
 	if !projectField.IsNil() {
 		projectID = projectField.Elem().FieldByName("ID").String()
 		projectName = projectField.Elem().FieldByName("Name").String()
+		// Treat retired (canceled) projects as no project — their area work now
+		// lives in labels, so they shouldn't form stale project groups.
+		statusField := projectField.Elem().FieldByName("Status")
+		if statusField.IsValid() && !statusField.IsNil() &&
+			statusField.Elem().FieldByName("Type").String() == "canceled" {
+			projectID = ""
+			projectName = ""
+		}
 	}
 
 	cycleName := ""
@@ -1227,8 +1241,11 @@ func (c *Client) FetchIssueByID(ctx context.Context, id string) (Issue, error) {
 				ID graphql.String
 			}
 			Project *struct {
-				ID   graphql.String
-				Name graphql.String
+				ID     graphql.String
+				Name   graphql.String
+				Status *struct {
+					Type graphql.String
+				}
 			}
 			Cycle *struct {
 				Name     graphql.String
@@ -1341,6 +1358,11 @@ func (c *Client) FetchIssueByID(ctx context.Context, id string) (Issue, error) {
 	if query.Issue.Project != nil {
 		projectID = string(query.Issue.Project.ID)
 		projectName = string(query.Issue.Project.Name)
+		// Retired (canceled) projects are treated as no project (area work → labels).
+		if query.Issue.Project.Status != nil && string(query.Issue.Project.Status.Type) == "canceled" {
+			projectID = ""
+			projectName = ""
+		}
 	}
 
 	cycleName := ""

@@ -153,6 +153,81 @@ func TestBuildGroupedRows_HiddenDoneStillCounts(t *testing.T) {
 	}
 }
 
+func lbls(names ...string) []linearapi.IssueLabel {
+	out := make([]linearapi.IssueLabel, len(names))
+	for i, n := range names {
+		out[i] = linearapi.IssueLabel{Name: n}
+	}
+	return out
+}
+
+func TestBuildLabelGroupedRows_MultiLabelAndNoLabel(t *testing.T) {
+	issues := []linearapi.Issue{
+		{ID: "1", Identifier: "EFF-1", StateType: "backlog", Labels: lbls("infra", "Bug")},
+		{ID: "2", Identifier: "EFF-2", StateType: "completed", Labels: lbls("infra")},
+		{ID: "3", Identifier: "EFF-3", StateType: "backlog"}, // no label
+	}
+	rows, idx := BuildLabelGroupedRows(issues, map[string]bool{}, map[string]bool{})
+	if len(idx) != 3 {
+		t.Fatalf("idToIssue = %d, want 3", len(idx))
+	}
+
+	// Collect label headers + their issue counts (issues between this header and the next).
+	headerCounts := map[string]int{}
+	var cur string
+	for _, r := range rows {
+		if r.Kind == RowLabel {
+			cur = r.GroupLabel
+			headerCounts[cur] = r.GroupCount
+		}
+	}
+	// infra has 2 (EFF-1, EFF-2); Bug has 1 (EFF-1, multi-label); (No label) has 1 (EFF-3).
+	if headerCounts["infra"] != 2 {
+		t.Errorf("infra count = %d, want 2", headerCounts["infra"])
+	}
+	if headerCounts["Bug"] != 1 {
+		t.Errorf("Bug count = %d, want 1 (multi-label issue appears under each)", headerCounts["Bug"])
+	}
+	if headerCounts[noLabelLabel] != 1 {
+		t.Errorf("(No label) count = %d, want 1", headerCounts[noLabelLabel])
+	}
+
+	// "(No label)" must be the last header.
+	lastHeader := ""
+	for _, r := range rows {
+		if r.Kind == RowLabel {
+			lastHeader = r.GroupLabel
+		}
+	}
+	if lastHeader != noLabelLabel {
+		t.Errorf("last header = %q, want %q (pinned last)", lastHeader, noLabelLabel)
+	}
+}
+
+func TestBuildLabelGroupedRows_HiddenDoneStillCounts(t *testing.T) {
+	issues := []linearapi.Issue{
+		{ID: "1", Identifier: "EFF-1", StateType: "completed", Labels: lbls("infra")},
+		{ID: "2", Identifier: "EFF-2", StateType: "backlog", Labels: lbls("infra")},
+	}
+	rows, _ := BuildLabelGroupedRows(issues, map[string]bool{}, map[string]bool{"completed": true})
+	var header IssueRow
+	issueRows := 0
+	for _, r := range rows {
+		if r.Kind == RowLabel {
+			header = r
+		}
+		if r.Kind == RowIssue {
+			issueRows++
+		}
+	}
+	if header.GroupCount != 2 || header.GroupDone != 1 {
+		t.Errorf("infra rollup = %d/%d, want 1/2", header.GroupDone, header.GroupCount)
+	}
+	if issueRows != 1 {
+		t.Errorf("visible issue rows = %d, want 1 (done hidden)", issueRows)
+	}
+}
+
 func TestBuildGroupedRows_CollapseHidesChildren(t *testing.T) {
 	issues := []linearapi.Issue{
 		{ID: "390", Identifier: "EFF-390", ProjectName: "Dory Q&A", MilestoneName: "v0.9", StateType: "completed"},

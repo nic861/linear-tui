@@ -28,6 +28,7 @@ const (
 	SortByStatusPriority SortField = "statusPriority" // status → priority
 	SortByCycle          SortField = "cycle"          // cycle → status → priority
 	SortByMilestone      SortField = "milestone"      // project → milestone → status → priority
+	SortByLabel          SortField = "label"          // group by label → status → priority
 )
 
 // App is the main application controller that manages all UI components.
@@ -941,7 +942,7 @@ func (a *App) refreshIssuesWithFocusChange(allowFocusChange bool, issueID ...str
 		// Custom sort modes use client-side sorting, fetch with updatedAt from API.
 		apiOrderBy := string(a.sortField)
 		switch a.sortField {
-		case SortByProjectStatus, SortByStatusPriority, SortByCycle, SortByMilestone:
+		case SortByProjectStatus, SortByStatusPriority, SortByCycle, SortByMilestone, SortByLabel:
 			apiOrderBy = string(SortByUpdatedAt)
 		}
 
@@ -1076,18 +1077,28 @@ func (a *App) updateIssuesData(issues []linearapi.Issue, issueID ...string) {
 	a.updateStatusBar()
 }
 
-// grouped reports whether the current sort mode uses the project/milestone grouped view.
+// grouped reports whether the current sort mode uses a collapsible grouped view
+// (project/milestone or label) rather than the flat sub-issue hierarchy.
 func (a *App) grouped() bool {
-	return a.sortField == SortByMilestone
+	return a.sortField == SortByMilestone || a.sortField == SortByLabel
 }
 
-// buildRows builds the row model for the current mode: grouped (project/milestone
-// headers + Seq) when in milestone sort, otherwise the sub-issue hierarchy tree.
+// labelGrouped reports whether the current view groups by label.
+func (a *App) labelGrouped() bool {
+	return a.sortField == SortByLabel
+}
+
+// buildRows builds the row model for the current mode: label-grouped, project/
+// milestone-grouped (+ Seq), or the flat sub-issue hierarchy tree.
 func (a *App) buildRows(issues []linearapi.Issue) ([]IssueRow, map[string]*linearapi.Issue) {
-	if a.grouped() {
+	switch {
+	case a.labelGrouped():
+		return BuildLabelGroupedRows(issues, a.collapsedGroups, a.hiddenStateTypes)
+	case a.sortField == SortByMilestone:
 		return BuildGroupedRows(issues, a.collapsedGroups, a.hiddenStateTypes)
+	default:
+		return BuildIssueRows(issues, a.expandedState)
 	}
-	return BuildIssueRows(issues, a.expandedState)
 }
 
 // rebuildIssuesTable rebuilds issue rows and renders the table, returning the selected issue.
@@ -1382,20 +1393,56 @@ func (a *App) enumerateGroupKeys() (projKeys, msKeys []string) {
 	return projKeys, msKeys
 }
 
-// applyFoldLevel sets the collapse state for the whole grouped view:
-// 0 = all projects collapsed, 1 = projects open but milestones collapsed,
-// 2 = everything expanded. Rebuilds and re-renders.
-func (a *App) applyFoldLevel(level int) {
-	projKeys, msKeys := a.enumerateGroupKeys()
-	a.collapsedGroups = make(map[string]bool)
-	switch level {
-	case 0:
-		for _, k := range projKeys {
-			a.collapsedGroups[k] = true
+// enumerateLabelKeys returns the label group keys present in the current issue set.
+func (a *App) enumerateLabelKeys() []string {
+	a.issuesMu.RLock()
+	issues := a.issues
+	a.issuesMu.RUnlock()
+
+	seen := make(map[string]bool)
+	var keys []string
+	for i := range issues {
+		names := make([]string, 0, len(issues[i].Labels))
+		for _, l := range issues[i].Labels {
+			names = append(names, l.Name)
 		}
-	case 1:
-		for _, k := range msKeys {
-			a.collapsedGroups[k] = true
+		if len(names) == 0 {
+			names = []string{noLabelLabel}
+		}
+		for _, n := range names {
+			k := labelGroupKey(n)
+			if !seen[k] {
+				seen[k] = true
+				keys = append(keys, k)
+			}
+		}
+	}
+	return keys
+}
+
+// applyFoldLevel sets the collapse state for the whole grouped view. For the
+// project/milestone view: 0 = all projects collapsed, 1 = milestones collapsed,
+// 2 = expanded. For the (single-level) label view: 0 = all collapsed, else
+// expanded. Rebuilds and re-renders.
+func (a *App) applyFoldLevel(level int) {
+	a.collapsedGroups = make(map[string]bool)
+	if a.labelGrouped() {
+		if level == 0 {
+			for _, k := range a.enumerateLabelKeys() {
+				a.collapsedGroups[k] = true
+			}
+		}
+	} else {
+		projKeys, msKeys := a.enumerateGroupKeys()
+		switch level {
+		case 0:
+			for _, k := range projKeys {
+				a.collapsedGroups[k] = true
+			}
+		case 1:
+			for _, k := range msKeys {
+				a.collapsedGroups[k] = true
+			}
 		}
 	}
 
@@ -1512,6 +1559,8 @@ func (a *App) updateStatusBar() {
 		sortLabel = "cycle"
 	case SortByMilestone:
 		sortLabel = "milestone"
+	case SortByLabel:
+		sortLabel = "label"
 	}
 	sortText := fmt.Sprintf("%s↕ %s[-]", a.themeTags.SecondaryText, sortLabel)
 
