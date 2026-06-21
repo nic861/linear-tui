@@ -228,6 +228,53 @@ func TestBuildLabelGroupedRows_HiddenDoneStillCounts(t *testing.T) {
 	}
 }
 
+func TestBuildGroupedRows_SuppressAllDoneGroups(t *testing.T) {
+	issues := []linearapi.Issue{
+		// Project P: one all-done milestone (should suppress) + one with an open issue.
+		{ID: "1", Identifier: "EFF-1", ProjectName: "P", MilestoneName: "done-ms", StateType: "completed"},
+		{ID: "2", Identifier: "EFF-2", ProjectName: "P", MilestoneName: "live-ms", StateType: "backlog"},
+		// Project Q: entirely done (should suppress the whole project).
+		{ID: "3", Identifier: "EFF-3", ProjectName: "Q", MilestoneName: "v1", StateType: "completed"},
+	}
+	hidden := map[string]bool{"completed": true}
+	rows, _ := BuildGroupedRows(issues, map[string]bool{}, hidden)
+
+	for _, r := range rows {
+		if r.Kind == RowProject && r.GroupLabel == "Q" {
+			t.Errorf("project Q is all-done but its header was emitted")
+		}
+		if r.Kind == RowMilestone && r.GroupLabel == "done-ms" {
+			t.Errorf("milestone done-ms is all-done but its header was emitted")
+		}
+	}
+	// P + live-ms must still appear (they have a visible issue).
+	var sawP, sawLive bool
+	for _, r := range rows {
+		if r.Kind == RowProject && r.GroupLabel == "P" {
+			sawP = true
+		}
+		if r.Kind == RowMilestone && r.GroupLabel == "live-ms" {
+			sawLive = true
+		}
+	}
+	if !sawP || !sawLive {
+		t.Errorf("project P / live-ms should still render (have a visible issue): P=%v live=%v", sawP, sawLive)
+	}
+}
+
+func TestBuildLabelGroupedRows_SuppressAllDoneLabel(t *testing.T) {
+	issues := []linearapi.Issue{
+		{ID: "1", Identifier: "EFF-1", StateType: "completed", Labels: lbls("legacy")},
+		{ID: "2", Identifier: "EFF-2", StateType: "backlog", Labels: lbls("live")},
+	}
+	rows, _ := BuildLabelGroupedRows(issues, map[string]bool{}, map[string]bool{"completed": true})
+	for _, r := range rows {
+		if r.Kind == RowLabel && r.GroupLabel == "legacy" {
+			t.Errorf("label 'legacy' is all-done but its header was emitted")
+		}
+	}
+}
+
 func TestBuildGroupedRows_CollapseHidesChildren(t *testing.T) {
 	issues := []linearapi.Issue{
 		{ID: "390", Identifier: "EFF-390", ProjectName: "Dory Q&A", MilestoneName: "v0.9", StateType: "completed"},

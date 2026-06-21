@@ -112,6 +112,18 @@ type groupRollup struct {
 	hasCurrentCycle        bool
 }
 
+// visibleCount returns how many of the members are NOT hidden by the current
+// state-type filter — i.e. how many issue rows the group would actually render.
+func visibleCount(members []*linearapi.Issue, hidden map[string]bool) int {
+	n := 0
+	for _, is := range members {
+		if !hidden[is.StateType] {
+			n++
+		}
+	}
+	return n
+}
+
 // rollupOf aggregates a group's issues. Priority/state breakdowns count only OPEN
 // issues (not done/canceled); done is counted separately for the progress ratio.
 func rollupOf(members []*linearapi.Issue) groupRollup {
@@ -200,6 +212,11 @@ func BuildGroupedRows(issues []linearapi.Issue, collapsedGroups, hiddenStateType
 		for _, ms := range pb.msOrder {
 			pMembers = append(pMembers, pb.msIssues[ms]...)
 		}
+		// Suppress a group whose issues are all hidden (e.g. all done with
+		// hide-done on) — an empty header is just noise.
+		if visibleCount(pMembers, hiddenStateTypes) == 0 {
+			continue
+		}
 		pr := rollupOf(pMembers)
 		pKey := projectGroupKey(pName)
 		pCollapsed := collapsedGroups[pKey]
@@ -224,6 +241,10 @@ func BuildGroupedRows(issues []linearapi.Issue, collapsedGroups, hiddenStateType
 
 		for _, mName := range pb.msOrder {
 			group := pb.msIssues[mName]
+			// Suppress a milestone whose issues are all hidden (no visible rows).
+			if visibleCount(group, hiddenStateTypes) == 0 {
+				continue
+			}
 			rank := computeMilestoneSeq(group)
 
 			// Order within the milestone: dependency rank, then priority, then identifier.
@@ -354,6 +375,10 @@ func BuildLabelGroupedRows(issues []linearapi.Issue, collapsedGroups, hiddenStat
 	var rows []IssueRow
 	for _, name := range order {
 		members := groups[name]
+		// Suppress a label group whose issues are all hidden (no visible rows).
+		if visibleCount(members, hiddenStateTypes) == 0 {
+			continue
+		}
 		r := rollupOf(members)
 		key := labelGroupKey(name)
 		collapsed := collapsedGroups[key]
