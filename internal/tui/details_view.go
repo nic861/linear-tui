@@ -257,6 +257,7 @@ func buildGroupDetailsText(r IssueRow, issues []linearapi.Issue, tags ThemeTags)
 
 	var titleLine, projName, msName string
 	isMilestone := false
+	isLabel := false
 	scope := func(linearapi.Issue) bool { return false }
 
 	if p, ok := parseProjectKey(r.GroupKey); ok {
@@ -283,6 +284,20 @@ func buildGroupDetailsText(r IssueRow, issues []linearapi.Issue, tags ThemeTags)
 				mn = noMilestoneLabel
 			}
 			return pn == p && mn == m
+		}
+	} else if lbl, ok := parseLabelKey(r.GroupKey); ok {
+		isLabel = true
+		titleLine = fmt.Sprintf("%s# %s[-]", accentColor, lbl)
+		scope = func(is linearapi.Issue) bool {
+			if lbl == noLabelLabel {
+				return len(is.Labels) == 0
+			}
+			for _, l := range is.Labels {
+				if l.Name == lbl {
+					return true
+				}
+			}
+			return false
 		}
 	} else {
 		return ""
@@ -325,7 +340,7 @@ func buildGroupDetailsText(r IssueRow, issues []linearapi.Issue, tags ThemeTags)
 	}
 	b.WriteString(fmt.Sprintf("  (%d total)[-]\n", total))
 
-	if isMilestone {
+	if isMilestone || isLabel {
 		ids := make(map[string]bool, len(members))
 		doneSet := make(map[string]bool, len(members))
 		for _, m := range members {

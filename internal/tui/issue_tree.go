@@ -13,6 +13,7 @@ const (
 	RowIssue     RowKind = iota // a normal issue row
 	RowProject                  // a project group-header row
 	RowMilestone                // a milestone group-header row
+	RowLabel                    // a label group-header row (group-by-label view)
 )
 
 // IssueRow represents a single row in the issues table with hierarchy info.
@@ -45,6 +46,12 @@ type IssueRow struct {
 	// Sequence fields (RowIssue in grouped/milestone mode only).
 	Seq         int  // dependency depth within the milestone (0 = not applicable)
 	SeqParallel bool // shares its rank with a sibling (no ordering constraint between them)
+}
+
+// IsGroupHeader reports whether the row is a collapsible group header
+// (project, milestone, or label) rather than an issue.
+func (r IssueRow) IsGroupHeader() bool {
+	return r.Kind == RowProject || r.Kind == RowMilestone || r.Kind == RowLabel
 }
 
 // BuildIssueRows constructs a flattened list of rows for table rendering.

@@ -11,7 +11,21 @@ import (
 const (
 	noProjectLabel   = "(No project)"
 	noMilestoneLabel = "(No milestone)"
+	noLabelLabel     = "(No label)"
 )
+
+// labelGroupKey builds a stable collapse-state key for a label group.
+func labelGroupKey(label string) string {
+	return "L\x00" + label
+}
+
+// parseLabelKey returns the label name if key is a label group key.
+func parseLabelKey(key string) (label string, ok bool) {
+	if strings.HasPrefix(key, "L\x00") {
+		return key[len("L\x00"):], true
+	}
+	return "", false
+}
 
 // projectGroupKey / milestoneGroupKey build stable collapse-state keys.
 func projectGroupKey(project string) string {
@@ -290,6 +304,96 @@ func BuildGroupedRows(issues []linearapi.Issue, collapsedGroups, hiddenStateType
 				}
 				rows = append(rows, r)
 			}
+		}
+	}
+
+	return rows, idToIssue
+}
+
+// BuildLabelGroupedRows produces a single-level label-grouped row model: a header
+// per label, then that label's issues (ordered by state then priority). An issue
+// with multiple labels appears under each; unlabeled issues group under "(No label)".
+// Collapsible via collapsedGroups; hidden state types are counted in the rollup but
+// their rows are not displayed.
+func BuildLabelGroupedRows(issues []linearapi.Issue, collapsedGroups, hiddenStateTypes map[string]bool) ([]IssueRow, map[string]*linearapi.Issue) {
+	idToIssue := make(map[string]*linearapi.Issue, len(issues))
+	for i := range issues {
+		idToIssue[issues[i].ID] = &issues[i]
+	}
+
+	var order []string
+	groups := make(map[string][]*linearapi.Issue)
+	for i := range issues {
+		is := &issues[i]
+		names := make([]string, 0, len(is.Labels))
+		for _, l := range is.Labels {
+			names = append(names, l.Name)
+		}
+		if len(names) == 0 {
+			names = []string{noLabelLabel}
+		}
+		for _, n := range names {
+			if _, ok := groups[n]; !ok {
+				order = append(order, n)
+			}
+			groups[n] = append(groups[n], is)
+		}
+	}
+
+	// Alphabetical, with "(No label)" pinned last.
+	sort.Slice(order, func(i, j int) bool {
+		if order[i] == noLabelLabel {
+			return false
+		}
+		if order[j] == noLabelLabel {
+			return true
+		}
+		return strings.ToLower(order[i]) < strings.ToLower(order[j])
+	})
+
+	var rows []IssueRow
+	for _, name := range order {
+		members := groups[name]
+		r := rollupOf(members)
+		key := labelGroupKey(name)
+		collapsed := collapsedGroups[key]
+		rows = append(rows, IssueRow{
+			Kind:            RowLabel,
+			GroupKey:        key,
+			GroupLabel:      name,
+			GroupCount:      r.count,
+			GroupDone:       r.done,
+			Collapsed:       collapsed,
+			OpenUrgent:      r.urgent,
+			OpenHigh:        r.high,
+			OpenMed:         r.med,
+			OpenLow:         r.low,
+			OpenInProgress:  r.inProgress,
+			OpenTodo:        r.todo,
+			HasCurrentCycle: r.hasCurrentCycle,
+		})
+		if collapsed {
+			continue
+		}
+
+		ordered := make([]*linearapi.Issue, len(members))
+		copy(ordered, members)
+		sort.SliceStable(ordered, func(i, j int) bool {
+			si, sj := stateTypeOrder(ordered[i].StateType), stateTypeOrder(ordered[j].StateType)
+			if si != sj {
+				return si < sj
+			}
+			pi, pj := priorityOrder(ordered[i].Priority), priorityOrder(ordered[j].Priority)
+			if pi != pj {
+				return pi < pj
+			}
+			return ordered[i].Identifier < ordered[j].Identifier
+		})
+		for _, is := range ordered {
+			if hiddenStateTypes[is.StateType] {
+				continue
+			}
+			rows = append(rows, IssueRow{Kind: RowIssue, IssueID: is.ID})
 		}
 	}
 
