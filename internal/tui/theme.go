@@ -58,7 +58,7 @@ var LinearTheme = Theme{
 	StatusBlocked:    tcell.NewRGBColor(255, 140, 0),   // Bright orange (distinct from Canceled red)
 
 	PriorityUrgent: tcell.NewRGBColor(255, 40, 40),  // Vivid red
-	PriorityHigh:   tcell.NewRGBColor(255, 165, 0),  // Orange
+	PriorityHigh:   tcell.NewRGBColor(255, 106, 0),  // #FF6A00 bold orange — deeper than Medium/yellow for contrast (font + bar)
 	PriorityMedium: tcell.NewRGBColor(242, 201, 76), // Yellow
 	PriorityLow:    tcell.NewRGBColor(82, 196, 118), // Green
 }
