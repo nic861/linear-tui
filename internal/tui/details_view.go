@@ -258,7 +258,11 @@ func buildGroupDetailsText(r IssueRow, issues []linearapi.Issue, tags ThemeTags)
 	var titleLine, projName, msName string
 	isMilestone := false
 	isLabel := false
-	scope := func(linearapi.Issue) bool { return false }
+	// Declared, not initialized: every branch below either assigns scope or
+	// returns early, so the old `func(...) bool { return false }` placeholder was
+	// dead in all paths (ineffassign). Keeping it would also mask a future branch
+	// that forgot to assign — this way that is a nil-call, not a silent empty pane.
+	var scope func(linearapi.Issue) bool
 
 	if p, ok := parseProjectKey(r.GroupKey); ok {
 		projName = p
@@ -312,11 +316,11 @@ func buildGroupDetailsText(r IssueRow, issues []linearapi.Issue, tags ThemeTags)
 		}
 		members = append(members, &issues[i])
 		switch issues[i].StateType {
-		case "completed":
+		case stateTypeCompleted:
 			done++
-		case "started":
+		case stateTypeStarted:
 			prog++
-		case "canceled", "duplicate":
+		case stateTypeCanceled, stateTypeDuplicate:
 			canc++
 		default:
 			todo++
@@ -327,18 +331,18 @@ func buildGroupDetailsText(r IssueRow, issues []linearapi.Issue, tags ThemeTags)
 	var b strings.Builder
 	b.WriteString(titleLine + "\n\n")
 	if isMilestone {
-		b.WriteString(fmt.Sprintf("%sProject:[-]    %s%s[-]\n", keyColor, valColor, projName))
+		fmt.Fprintf(&b, "%sProject:[-]    %s%s[-]\n", keyColor, valColor, projName)
 	}
 	pct := 0
 	if total > 0 {
 		pct = done * 100 / total
 	}
-	b.WriteString(fmt.Sprintf("%sProgress:[-]   %s%d%%[-]  %s%s[-]\n", keyColor, valColor, pct, accentColor, progressBar(done, total)))
-	b.WriteString(fmt.Sprintf("%sIssues:[-]     %s● %d done  ◐ %d in progress  ○ %d todo", keyColor, valColor, done, prog, todo))
+	fmt.Fprintf(&b, "%sProgress:[-]   %s%d%%[-]  %s%s[-]\n", keyColor, valColor, pct, accentColor, progressBar(done, total))
+	fmt.Fprintf(&b, "%sIssues:[-]     %s● %d done  ◐ %d in progress  ○ %d todo", keyColor, valColor, done, prog, todo)
 	if canc > 0 {
-		b.WriteString(fmt.Sprintf("  ✕ %d", canc))
+		fmt.Fprintf(&b, "  ✕ %d", canc)
 	}
-	b.WriteString(fmt.Sprintf("  (%d total)[-]\n", total))
+	fmt.Fprintf(&b, "  (%d total)[-]\n", total)
 
 	if isMilestone || isLabel {
 		ids := make(map[string]bool, len(members))
@@ -368,17 +372,17 @@ func buildGroupDetailsText(r IssueRow, issues []linearapi.Issue, tags ThemeTags)
 		b.WriteString("\n")
 		switch {
 		case total > 0 && done == total:
-			b.WriteString(fmt.Sprintf("%sNext up:[-]    %sall complete ✓[-]\n", keyColor, accentColor))
+			fmt.Fprintf(&b, "%sNext up:[-]    %sall complete ✓[-]\n", keyColor, accentColor)
 		case len(ready) == 0:
-			b.WriteString(fmt.Sprintf("%sNext up:[-]    %snone unblocked[-]\n", keyColor, keyColor))
+			fmt.Fprintf(&b, "%sNext up:[-]    %snone unblocked[-]\n", keyColor, keyColor)
 		default:
-			b.WriteString(fmt.Sprintf("%sNext up:[-]\n", keyColor))
+			fmt.Fprintf(&b, "%sNext up:[-]\n", keyColor)
 			for i, m := range ready {
 				if i >= 6 {
-					b.WriteString(fmt.Sprintf("  %s… +%d more[-]\n", keyColor, len(ready)-6))
+					fmt.Fprintf(&b, "  %s… +%d more[-]\n", keyColor, len(ready)-6)
 					break
 				}
-				b.WriteString(fmt.Sprintf("  %s%s[-] %s%s[-]\n", accentColor, m.Identifier, valColor, truncateRunes(m.Title, 52)))
+				fmt.Fprintf(&b, "  %s%s[-] %s%s[-]\n", accentColor, m.Identifier, valColor, truncateRunes(m.Title, 52))
 			}
 		}
 	} else {
@@ -394,7 +398,7 @@ func buildGroupDetailsText(r IssueRow, issues []linearapi.Issue, tags ThemeTags)
 				msList = append(msList, mn)
 			}
 		}
-		b.WriteString(fmt.Sprintf("\n%sMilestones:[-] %s%s[-]\n", keyColor, valColor, strings.Join(msList, ", ")))
+		fmt.Fprintf(&b, "\n%sMilestones:[-] %s%s[-]\n", keyColor, valColor, strings.Join(msList, ", "))
 	}
 
 	return b.String()
