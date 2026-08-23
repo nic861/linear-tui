@@ -64,6 +64,14 @@ var LinearTheme = Theme{
 }
 
 // HighContrastTheme is a high contrast theme for improved legibility.
+//
+// dupl matches on token shape, so every complete Theme literal resembles every
+// other one — they share field names by definition and differ only in values.
+// Collapsing the palettes behind a builder to satisfy it would make them harder
+// to read and edit, which is the opposite of the point. ColorBlindTheme is the
+// other half of the flagged pair.
+//
+//nolint:dupl // theme palettes are structurally identical by design
 var HighContrastTheme = Theme{
 	Background:    tcell.NewRGBColor(0, 0, 0),       // #000000
 	Foreground:    tcell.NewRGBColor(255, 255, 255), // #FFFFFF
@@ -91,6 +99,8 @@ var HighContrastTheme = Theme{
 }
 
 // ColorBlindTheme is a color-blind friendly palette.
+//
+//nolint:dupl // theme palettes are structurally identical by design; see HighContrastTheme
 var ColorBlindTheme = Theme{
 	Background:    tcell.NewRGBColor(16, 16, 16),    // #101010
 	Foreground:    tcell.NewRGBColor(230, 230, 230), // #E6E6E6
