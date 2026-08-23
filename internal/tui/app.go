@@ -82,7 +82,7 @@ type App struct {
 	// Filter/sort state
 	searchQuery      string
 	sortField        SortField
-	hiddenStateTypes map[string]bool // state types to exclude (e.g., "completed", "canceled")
+	hiddenStateTypes map[string]bool // state types to exclude (e.g., stateTypeCompleted, stateTypeCanceled)
 
 	// Cached metadata for currently selected team
 	currentUser    *linearapi.User
@@ -146,7 +146,7 @@ func NewApp(api *linearapi.Client, cfg config.Config, templates []config.AgentPr
 		pages:                tview.NewPages(),
 		focusedPane:          FocusIssues,
 		sortField:            SortByProjectStatus,
-		hiddenStateTypes:     map[string]bool{"completed": true, "canceled": true, "duplicate": true},
+		hiddenStateTypes:     map[string]bool{stateTypeCompleted: true, stateTypeCanceled: true, stateTypeDuplicate: true},
 		expandedState:        make(map[string]bool),
 		collapsedGroups:      make(map[string]bool),
 		foldLevel:            2, // start fully expanded
@@ -423,7 +423,7 @@ func (a *App) resetCachedState() {
 	a.workflowStates = nil
 	a.expandedState = make(map[string]bool)
 	a.collapsedGroups = make(map[string]bool)
-	a.hiddenStateTypes = map[string]bool{"completed": true, "canceled": true, "duplicate": true}
+	a.hiddenStateTypes = map[string]bool{stateTypeCompleted: true, stateTypeCanceled: true, stateTypeDuplicate: true}
 
 	a.isLoading = false
 	a.pendingRefresh = false
@@ -952,7 +952,7 @@ func (a *App) refreshIssuesWithFocusChange(allowFocusChange bool, issueID ...str
 		// rows are filtered out at build time, but the rollup needs them.
 		var excludeTypes []string
 		for st := range a.hiddenStateTypes {
-			if a.grouped() && st == "completed" {
+			if a.grouped() && st == stateTypeCompleted {
 				continue
 			}
 			excludeTypes = append(excludeTypes, st)
@@ -1174,13 +1174,13 @@ func (a *App) appendIssuesData(newIssues []linearapi.Issue) {
 // Lower = sorts first. started (In Progress) first, then unstarted, triage, backlog.
 func stateTypeOrder(stateType string) int {
 	switch stateType {
-	case "started":
+	case stateTypeStarted:
 		return 0
-	case "unstarted":
+	case stateTypeUnstarted:
 		return 1
-	case "triage":
+	case stateTypeTriage:
 		return 2
-	case "backlog":
+	case stateTypeBacklog:
 		return 3
 	default:
 		return 4
@@ -1785,17 +1785,17 @@ func (a *App) showUserPickerWithUsers(users []linearapi.User, onSelect func(user
 
 // stateTypeLabels maps state types to human-readable labels.
 var stateTypeLabels = map[string]string{
-	"started":   "In Progress",
-	"unstarted": "Todo",
-	"triage":    "Triage",
-	"backlog":   "Backlog",
-	"completed": "Done",
-	"canceled":  "Canceled",
-	"duplicate": "Duplicate",
+	stateTypeStarted:   "In Progress",
+	stateTypeUnstarted: "Todo",
+	stateTypeTriage:    "Triage",
+	stateTypeBacklog:   "Backlog",
+	stateTypeCompleted: "Done",
+	stateTypeCanceled:  "Canceled",
+	stateTypeDuplicate: "Duplicate",
 }
 
 // stateTypeOrder is the display order for state types in the filter picker.
-var stateTypePickerOrder = []string{"started", "unstarted", "triage", "backlog", "completed", "canceled", "duplicate"}
+var stateTypePickerOrder = []string{stateTypeStarted, stateTypeUnstarted, stateTypeTriage, stateTypeBacklog, stateTypeCompleted, stateTypeCanceled, stateTypeDuplicate}
 
 // buildStateTypePickerItems builds the picker items reflecting current filter state.
 func (a *App) buildStateTypePickerItems() []PickerItem {

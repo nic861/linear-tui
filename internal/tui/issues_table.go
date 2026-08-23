@@ -40,7 +40,7 @@ func isBlocked(issue *linearapi.Issue) bool {
 		return false
 	}
 	for _, blocker := range issue.BlockedBy {
-		if blocker.StateType != "completed" && blocker.StateType != "canceled" {
+		if blocker.StateType != stateTypeCompleted && blocker.StateType != stateTypeCanceled {
 			return true
 		}
 	}
