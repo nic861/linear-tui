@@ -1,8 +1,10 @@
 package tui
 
-import "testing"
+import (
+	"testing"
 
-import "github.com/roeyazroel/linear-tui/internal/linearapi"
+	"github.com/roeyazroel/linear-tui/internal/linearapi"
+)
 
 func blk(ids ...string) []linearapi.IssueRelationRef {
 	refs := make([]linearapi.IssueRelationRef, len(ids))

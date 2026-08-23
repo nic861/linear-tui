@@ -44,7 +44,7 @@ func derefReflectString(v reflect.Value) string {
 	if !v.IsValid() {
 		return ""
 	}
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return ""
 		}

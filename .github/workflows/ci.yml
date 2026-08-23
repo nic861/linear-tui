@@ -44,7 +44,14 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          version: latest
+          # Pinned, not `latest`. With `latest` the gate is non-deterministic: a new
+          # golangci-lint release adds checks, and code that passed yesterday fails
+          # today with nobody having touched it. Locally reproducing this job's 25
+          # findings on 2026-08-23 produced 26 — the extra one arrived purely with the
+          # version. Now that Renovate auto-merges security fixes on green, a lint
+          # gate that can redden on its own blocks security patches, so it has to be
+          # a version someone chose. Bump it deliberately.
+          version: v2.13.1
 
   test:
     name: Test

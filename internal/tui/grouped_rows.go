@@ -57,7 +57,7 @@ func parseMilestoneKey(key string) (project, milestone string, ok bool) {
 
 // isClosed reports whether an issue counts as resolved for rollup purposes.
 func isClosed(stateType string) bool {
-	return stateType == "completed" || stateType == "canceled" || stateType == "duplicate"
+	return stateType == stateTypeCompleted || stateType == stateTypeCanceled || stateType == stateTypeDuplicate
 }
 
 // computeMilestoneSeq returns the dependency depth (1-based) of each issue within
@@ -133,7 +133,7 @@ func rollupOf(members []*linearapi.Issue) groupRollup {
 		if is.InCurrentCycle {
 			r.hasCurrentCycle = true
 		}
-		if is.StateType == "completed" {
+		if is.StateType == stateTypeCompleted {
 			r.done++
 		}
 		if isClosed(is.StateType) {
@@ -149,7 +149,7 @@ func rollupOf(members []*linearapi.Issue) groupRollup {
 		default:
 			r.low++ // priority 4 (Low) and 0 (None)
 		}
-		if is.StateType == "started" {
+		if is.StateType == stateTypeStarted {
 			r.inProgress++
 		} else {
 			r.todo++ // backlog / unstarted
