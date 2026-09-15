@@ -55,7 +55,7 @@ jobs:
           # version. Now that Renovate auto-merges security fixes on green, a lint
           # gate that can redden on its own blocks security patches, so it has to be
           # a version someone chose. Bump it deliberately.
-          version: v2.13.1
+          version: v2.13.2
 
   test:
     name: Test
